@@ -196,3 +196,7 @@ slurm-*.out
 .vscode
 
 data/
+exps/
+tmp/
+eval/
+eval_res/

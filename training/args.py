@@ -28,6 +28,12 @@ def _get_model_args(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="The directory where the downloaded models and datasets will be stored.",
     )
+    parser.add_argument(
+        "--initial_frames_num",
+        type=int,
+        default=1,
+        help="Number of frames to use for the initial frame.",
+    )
 
 
 def _get_dataset_args(parser: argparse.ArgumentParser) -> None:
@@ -60,12 +66,102 @@ def _get_dataset_args(parser: argparse.ArgumentParser) -> None:
         type=str,
         default=None,
         help="The column of the dataset containing the tracking map for each video. Or, the name of the file in `--data_root` folder containing the line-separated tracking maps.",
+    )    
+    parser.add_argument(
+        "--normal_column",
+        type=str,
+        default=None,
+        help="The column of the dataset containing the normal map for each video. Or, the name of the file in `--data_root` folder containing the line-separated normal maps.",
+    )
+    parser.add_argument(
+        "--depth_column",
+        type=str,
+        default=None,
+        help="The column of the dataset containing the depth map for each video. Or, the name of the file in `--data_root` folder containing the line-separated depth maps.",
+    )
+    parser.add_argument(
+        "--label_column",
+        type=str,
+        default=None,
+        help="The column of the dataset containing the label for each video. Or, the name of the file in `--data_root` folder containing the line-separated labels.",
+    )
+    parser.add_argument(
+        "--seg_mask_column",
+        type=str,
+        default=None,
+        help="The column of the dataset containing the segmentation mask for each video. Or, the name of the file in `--data_root` folder containing the line-separated segmentation masks.",
+    )
+    parser.add_argument(
+        "--hand_keypoints_column",
+        type=str,
+        default=None,
+        help="The column of the dataset containing the hand keypoints for each video. Or, the name of the file in `--data_root` folder containing the line-separated hand keypoints.",
+    )
+    parser.add_argument(
+        "image_column",
+        type=str,
+        default=None,
+        help="The column of the dataset containing the image for each video. Or, the name of the file in `--data_root` folder containing the line-separated images.",
+    )
+    parser.add_argument(
+        "tracking_image_column",
+        type=str,
+        default=None,
+        help="The column of the dataset containing the tracking map image for each video. Or, the name of the file in `--data_root` folder containing the line-separated tracking map images.",
+    )
+    parser.add_argument(
+        "normal_image_column",
+        type=str,
+        default=None,
+        help="The column of the dataset containing the normal map image for each video. Or, the name of the file in `--data_root` folder containing the line-separated normal map images.",
+    )
+    parser.add_argument(
+        "depth_image_column",
+        type=str,
+        default=None,
+        help="The column of the dataset containing the depth map image for each video. Or, the name of the file in `--data_root` folder containing the line-separated depth map images."
+    )
+    parser.add_argument(
+        "seg_mask_image_column",
+        type=str,
+        default=None,
+        help="The column of the dataset containing the segmentation mask image for each video. Or, the name of the file in `--data_root` folder containing the line-separated segmentation mask images."
+    )
+    parser.add_argument(
+        "hand_keypoints_image_column",
+        type=str,
+        default=None,
+        help="The column of the dataset containing the hand keypoints image for each video. Or, the name of the file in `--data_root` folder containing the line-separated hand keypoints images."
     )
     parser.add_argument(
         "--tracking_map_path",
         type=str,
         default=None,
         help="Path to the tracking map video.",
+    )
+    parser.add_argument(
+        "--depth_map_path",
+        type=str,
+        default=None,
+        help="Path to the depth map video.",
+    )
+    parser.add_argument(
+        "--normal_map_path",
+        type=str,
+        default=None,
+        help="Path to the normal map video.",
+    )
+    parser.add_argument(
+        "--seg_mask_path",
+        type=str,
+        default=None,
+        help="Path to the segmentation mask video.",
+    )
+    parser.add_argument(
+        "--hand_keypoints_path",
+        type=str,
+        default=None,
+        help="Path to the hand keypoints video.",
     )
     parser.add_argument(
         "--num_tracking_blocks",
@@ -118,6 +214,11 @@ def _get_dataset_args(parser: argparse.ArgumentParser) -> None:
         "--pin_memory",
         action="store_true",
         help="Whether or not to use the pinned memory setting in pytorch dataloader.",
+    )
+    parser.add_argument(
+        "--random_mask",
+        action="store_true",
+        help="Whether or not to use random mask augmentation.",
     )
 
 

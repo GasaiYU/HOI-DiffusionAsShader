@@ -28,7 +28,7 @@ from PIL import Image
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(current_dir, '..'))
-from models.cogvideox_tracking import CogVideoXImageToVideoPipelineTracking, CogVideoXPipelineTracking, CogVideoXVideoToVideoPipelineTracking
+from models.cogvideox_tracking import CogVideoXImageToVideoPipelineTracking, CogVideoXPipelineTracking, CogVideoXVideoToVideoPipelineTracking, CogVideoXTransformer3DModelTracking
 from training.dataset import VideoDataset, VideoDatasetWithResizingTracking
 
 class VideoDatasetWithResizingTrackingEval(VideoDataset):
@@ -264,7 +264,9 @@ def sample_from_dataset(
             load_tensors=False,
             random_flip=None,
             frame_buckets=[49],
-            image_to_video=True
+            image_to_video=True,
+            height_buckets=[480],
+            width_buckets=[720]
         )
     
     # Set random seed
@@ -319,6 +321,7 @@ def generate_video(
     num_samples: int = -1,
     evaluation_dir: str = "evaluations",
     fps: int = 8,
+    transformer_path: str = None
 ):
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -337,7 +340,11 @@ def generate_video(
 
     # Load model and data
     if generate_type == "i2v":
-        pipe = CogVideoXImageToVideoPipelineTracking.from_pretrained(model_path, torch_dtype=dtype)
+        if transformer_path:
+            transformer = CogVideoXTransformer3DModelTracking.from_pretrained(transformer_path, torch_dtype=dtype)
+        pipe = CogVideoXImageToVideoPipelineTracking.from_pretrained(model_path, 
+                                                                    transformer=transformer,
+                                                                    torch_dtype=dtype)
         if not samples:
             image = load_image(image=image_or_video_path)
             height, width = image.height, image.width
@@ -629,7 +636,10 @@ if __name__ == "__main__":
         "--model_path", type=str, default="THUDM/CogVideoX-5b", help="The path of the pre-trained model to be used"
     )
     parser.add_argument(
-        "--output_path", type=str, default="./output.mp4", help="The path where the generated video will be saved"
+        "--transformer_path", type=str, default=None, help="The path of the pre-trained transformer model to be used"
+    )
+    parser.add_argument(
+        "--output_path", type=str, default="./outputransformer_pathtransformer_patht.mp4", help="The path where the generated video will be saved"
     )
     parser.add_argument("--guidance_scale", type=float, default=6.0, help="The scale for classifier-free guidance")
     parser.add_argument(
@@ -688,4 +698,5 @@ if __name__ == "__main__":
         num_samples=args.num_samples,
         evaluation_dir=args.evaluation_dir,
         fps=args.fps,
+        transformer_path=args.transformer_path
     )

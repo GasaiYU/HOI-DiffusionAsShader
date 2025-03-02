@@ -49,10 +49,10 @@ def load_media(media_path, max_frames=49, transform=None):
         image = load_image(media_path)
         frames = [image]
         fps = 8  # Default fps for images
-    
+        
     # Ensure we have exactly max_frames
     if len(frames) > max_frames:
-        frames = frames[:max_frames]
+        frames = frames[30:30+max_frames]
     elif len(frames) < max_frames:
         last_frame = frames[-1]
         while len(frames) < max_frames:
@@ -79,16 +79,21 @@ if __name__ == "__main__":
     parser.add_argument('--object_mask', type=str, default=None, help='Path to object mask image (binary image)')
     parser.add_argument('--tracking_method', type=str, default="spatracker", 
                         help='default tracking method for image input: moge/spatracker, if \'moge\' method will extract first frame for video input')
+    parser.add_argument('--transformer_path', type=str, default=None, help='Path to transformer checkpoint')    
+
     args = parser.parse_args()
     
     # Load input video/image
     video_tensor, fps, is_video = load_media(args.input_path)
+
     if not is_video:
         args.tracking_method = "moge"
         print("Image input detected, using MoGe for tracking video generation.")
 
     # Initialize pipeline
-    das = DiffusionAsShaderPipeline(gpu_id=args.gpu, output_dir=args.output_dir)
+    das = DiffusionAsShaderPipeline(model_path=args.checkpoint_path, transformer_path=args.transformer_path, 
+                                    gpu_id=args.gpu, output_dir=args.output_dir)
+    
     if args.tracking_method == "moge" and args.tracking_path is None:
         moge = MoGeModel.from_pretrained("Ruicheng/moge-vitl").to(das.device)
     
@@ -211,5 +216,4 @@ if __name__ == "__main__":
         tracking_tensor=tracking_tensor,
         img_cond_tensor=repaint_img_tensor,
         prompt=args.prompt,
-        checkpoint_path=args.checkpoint_path
     )

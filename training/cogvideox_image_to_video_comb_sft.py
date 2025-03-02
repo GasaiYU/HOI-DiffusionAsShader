@@ -58,6 +58,7 @@ decord.bridge.set_bridge("torch")
 
 from args import get_args  # isort:skip
 from dataset import BucketSampler, VideoDatasetWithResizing, VideoDatasetWithResizeAndRectangleCrop, VideoDatasetWithResizingTracking  # isort:skip
+from dataset import HOIVideoDatasetResizing
 from text_encoder import compute_prompt_embeddings  # isort:skip
 from utils import get_gradient_norm, get_optimizer, prepare_rotary_positional_embeddings, print_memory, reset_memory  # isort:skip
 
@@ -68,7 +69,9 @@ from diffusers.pipelines.cogvideo.pipeline_cogvideox_image2video import CogVideo
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(current_dir, '..'))
 from models.cogvideox_tracking import CogVideoXImageToVideoPipelineTracking
+from models.cogvidex_combination import CogVideoXImageToVideoPipelineCombination
 from models.cogvideox_tracking import CogVideoXTransformer3DModelTracking, CogVideoXPipelineTracking
+from models.cogvidex_combination import CogVideoXTransformer3DModelCombination, CogVideoXPipelineCombination
 
 logger = get_logger(__name__)
 
@@ -150,7 +153,7 @@ Please adhere to the licensing terms as described [here](https://huggingface.co/
 
 def log_validation(
     accelerator: Accelerator,
-    pipe: Union[CogVideoXPipeline, CogVideoXPipelineTracking],
+    pipe: Union[CogVideoXPipeline, CogVideoXPipelineTracking, CogVideoXImageToVideoPipelineCombination],
     vae: Union[AutoencoderKLCogVideoX, None],
     dataset: Union[VideoDatasetWithResizingTracking, None],
     args: Dict[str, Any],
@@ -158,17 +161,42 @@ def log_validation(
     epoch,
     is_final_validation: bool = False,
     random_flip: Optional[float] = None,
+    initial_frames_num: Optional[int] = 1,
 ):
     logger.info(
         f"Running validation... \n Generating {args.num_validation_videos} videos with prompt: {pipeline_args['prompt']}."
     )
 
     tracking_map_path = pipeline_args.pop("tracking_map_path", None)
+    normal_map_path = pipeline_args.pop("normal_map_path", None)
+    depth_map_path = pipeline_args.pop("depth_map_path", None)
+    seg_mask_path = pipeline_args.pop("seg_mask_path", None)
+    hand_keypoints_path = pipeline_args.pop("hand_keypoints_path", None)
 
     try:
         tracking_maps = pipeline_args.pop("tracking_maps", None)
     except:
         tracking_maps = None
+    
+    try:
+        normal_maps = pipeline_args.pop("normal_maps", None)
+    except:
+        normal_maps = None
+    
+    try:
+        depth_maps = pipeline_args.pop("depth_maps", None)
+    except:
+        depth_maps = None
+    
+    try:
+        seg_masks = pipeline_args.pop("seg_masks", None)
+    except:
+        seg_masks = None
+    
+    try:
+        hand_keypoints = pipeline_args.pop("hand_keypoints", None)
+    except:
+        hand_keypoints = None
     
     if tracking_map_path and args.load_tensors is False:
         from torchvision.transforms.functional import resize
@@ -193,10 +221,50 @@ def log_validation(
         tracking_frames_resized = torch.stack([resize(tracking_frame, nearest_res) for tracking_frame in tracking_frames], dim=0)
         tracking_frames = torch.stack([video_transforms(tracking_frame) for tracking_frame in tracking_frames_resized], dim=0)
 
-        tracking_image = tracking_frames[:1].clone()
+        normal_map_path = Path(normal_map_path)
+        normal_reader = decord.VideoReader(uri=normal_map_path.as_posix())
+        normal_frames = normal_reader.get_batch(frame_indices[:args.frame_buckets[0]])
+        normal_frames = normal_frames.permute(0, 3, 1, 2).contiguous()
+        normal_frames_resized = torch.stack([resize(normal_frame, nearest_res) for normal_frame in normal_frames], dim=0)
+        normal_frames = torch.stack([video_transforms(normal_frame) for normal_frame in normal_frames_resized], dim=0)
+
+        depth_map_path = Path(depth_map_path)
+        depth_reader = decord.VideoReader(uri=depth_map_path.as_posix())
+        depth_frames = depth_reader.get_batch(frame_indices[:args.frame_buckets[0]])
+        depth_frames = depth_frames.permute(0, 3, 1, 2).contiguous()
+        depth_frames_resized = torch.stack([resize(depth_frame, nearest_res) for depth_frame in depth_frames], dim=0)
+        depth_frames = torch.stack([video_transforms(depth_frame) for depth_frame in depth_frames_resized], dim=0)
+
+        seg_mask_path = Path(seg_mask_path)
+        seg_mask_reader = decord.VideoReader(uri=seg_mask_path.as_posix())
+        seg_mask_frames = seg_mask_reader.get_batch(frame_indices[:args.frame_buckets[0]])
+        seg_mask_frames = seg_mask_frames.permute(0, 3, 1, 2).contiguous()
+        seg_mask_frames_resized = torch.stack([resize(seg_mask_frame, nearest_res) for seg_mask_frame in seg_mask_frames], dim=0)
+        seg_mask_frames = torch.stack([video_transforms(seg_mask_frame) for seg_mask_frame in seg_mask_frames_resized], dim=0)
+
+        hand_keypoints_path = Path(hand_keypoints_path)
+        hand_keypoints_reader = decord.VideoReader(uri=hand_keypoints_path.as_posix())
+        hand_keypoints_frames = hand_keypoints_reader.get_batch(frame_indices[:args.frame_buckets[0]])
+        hand_keypoints_frames = hand_keypoints_frames.permute(0, 3, 1, 2).contiguous()
+        hand_keypoints_frames_resized = torch.stack([resize(hand_keypoints_frame, nearest_res) for hand_keypoints_frame in hand_keypoints_frames], dim=0)
+        hand_keypoints_frames = torch.stack([video_transforms(hand_keypoints_frame) for hand_keypoints_frame in hand_keypoints_frames_resized], dim=0)
+
+        # if initial_frames_num > 1:
+        #     pipeline_args["image"] = frames[:initial_frames_num].clone()
+
+        tracking_image = tracking_frames[:initial_frames_num].clone()
+        normal_image = normal_frames[:initial_frames_num].clone()
+        depth_image = depth_frames[:initial_frames_num].clone()
+        seg_image = seg_mask_frames[:initial_frames_num].clone()
+        hand_keypoints_image = hand_keypoints_frames[:initial_frames_num].clone()
+
         pipeline_args["tracking_image"] = tracking_image
+        pipeline_args["normal_image"] = normal_image
+        pipeline_args["depth_image"] = depth_image
+        pipeline_args["seg_image"] = seg_image
+        pipeline_args["hand_keypoints_image"] = hand_keypoints_image
         
-        # vae encode tracking_frames from path
+        # vae encode condition frames from path
         with torch.no_grad():
             tracking_frames = tracking_frames.unsqueeze(0).to(device=accelerator.device, dtype=accelerator.unwrap_model(vae).dtype)
             tracking_frames = tracking_frames.permute(0, 2, 1, 3, 4)  # to [B, C, F, H, W]
@@ -205,9 +273,41 @@ def log_validation(
             tracking_maps = tracking_maps.permute(0, 2, 1, 3, 4)  # to [B, F, C, H, W]
             tracking_maps = tracking_maps.to(memory_format=torch.contiguous_format, dtype=accelerator.unwrap_model(vae).dtype)
 
+            normal_frames = normal_frames.unsqueeze(0).to(device=accelerator.device, dtype=accelerator.unwrap_model(vae).dtype)
+            normal_frames = normal_frames.permute(0, 2, 1, 3, 4)  # to [B, C, F, H, W]
+            normal_latent_dist = vae.encode(normal_frames).latent_dist
+            normal_maps = normal_latent_dist.sample() * vae.config.scaling_factor
+            normal_maps = normal_maps.permute(0, 2, 1, 3, 4)  # to [B, F, C, H, W]
+            normal_maps = normal_maps.to(memory_format=torch.contiguous_format, dtype=accelerator.unwrap_model(vae).dtype)
+
+            depth_frames = depth_frames.unsqueeze(0).to(device=accelerator.device, dtype=accelerator.unwrap_model(vae).dtype)
+            depth_frames = depth_frames.permute(0, 2, 1, 3, 4)  # to [B, C, F, H, W]
+            depth_latent_dist = vae.encode(depth_frames).latent_dist
+            depth_maps = depth_latent_dist.sample() * vae.config.scaling_factor
+            depth_maps = depth_maps.permute(0, 2, 1, 3, 4)  # to [B, F, C, H, W]
+            depth_maps = depth_maps.to(memory_format=torch.contiguous_format, dtype=accelerator.unwrap_model(vae).dtype)
+            
+            seg_mask_frames = seg_mask_frames.unsqueeze(0).to(device=accelerator.device, dtype=accelerator.unwrap_model(vae).dtype)
+            seg_mask_frames = seg_mask_frames.permute(0, 2, 1, 3, 4)  # to [B, C, F, H, W]
+            seg_mask_latent_dist = vae.encode(seg_mask_frames).latent_dist
+            seg_masks = seg_mask_latent_dist.sample() * vae.config.scaling_factor
+            seg_masks = seg_masks.permute(0, 2, 1, 3, 4)
+            seg_masks = seg_masks.to(memory_format=torch.contiguous_format, dtype=accelerator.unwrap_model(vae).dtype)
+
+            hand_keypoints_frames = hand_keypoints_frames.unsqueeze(0).to(device=accelerator.device, dtype=accelerator.unwrap_model(vae).dtype)
+            hand_keypoints_frames = hand_keypoints_frames.permute(0, 2, 1, 3, 4)  # to [B, C, F, H, W]
+            hand_keypoints_latent_dist = vae.encode(hand_keypoints_frames).latent_dist
+            hand_keypoints = hand_keypoints_latent_dist.sample() * vae.config.scaling_factor
+            hand_keypoints = hand_keypoints.permute(0, 2, 1, 3, 4)
+            hand_keypoints = hand_keypoints.to(memory_format=torch.contiguous_format, dtype=accelerator.unwrap_model(vae).dtype)
+
     pipe = pipe.to(accelerator.device)
 
     pipeline_args["tracking_maps"] = tracking_maps
+    pipeline_args["normal_maps"] = normal_maps
+    pipeline_args["depth_maps"] = depth_maps
+    pipeline_args["seg_masks"] = seg_masks
+    pipeline_args["hand_keypoints"] = hand_keypoints
 
     # run inference
     generator = torch.Generator(device=accelerator.device).manual_seed(args.seed) if args.seed else None
@@ -319,6 +419,69 @@ class CollateFunctionImageTracking:
             "tracking_maps": tracking_maps,
         }
 
+class CollateFunctionMultiCondition:
+    def __init__(self, weight_dtype: torch.dtype, load_tensors: bool) -> None:
+        self.weight_dtype = weight_dtype
+        self.load_tensors = load_tensors
+
+    def __call__(self, data: Dict[str, Any]) -> Dict[str, torch.Tensor]:
+        prompts = [x["prompt"] for x in data[0]]
+
+        if self.load_tensors:
+            prompts = torch.stack(prompts).to(dtype=self.weight_dtype, non_blocking=True)
+
+        images = [x["image"] for x in data[0]]
+        images = torch.stack(images).to(dtype=self.weight_dtype, non_blocking=True)
+
+        videos = [x["video"] for x in data[0]]
+        videos = torch.stack(videos).to(dtype=self.weight_dtype, non_blocking=True)
+
+        tracking_maps = [x["tracking_map"] for x in data[0]]
+        tracking_maps = torch.stack(tracking_maps).to(dtype=self.weight_dtype, non_blocking=True)
+
+        tracking_images = [x["tracking_image"] for x in data[0]]
+        tracking_images = torch.stack(tracking_images).to(dtype=self.weight_dtype, non_blocking=True)
+        
+        depth_maps = [x["depth_map"] for x in data[0]]
+        depth_maps = torch.stack(depth_maps).to(dtype=self.weight_dtype, non_blocking=True)
+
+        depth_images = [x["depth_image"] for x in data[0]]
+        depth_images = torch.stack(depth_images).to(dtype=self.weight_dtype, non_blocking=True)
+        
+        normal_maps = [x["normal_map"] for x in data[0]]
+        normal_maps = torch.stack(normal_maps).to(dtype=self.weight_dtype, non_blocking=True)
+        
+        normal_images = [x['normal_image'] for x in data[0]]
+        normal_images = torch.stack(normal_images).to(dtype=self.weight_dtype, non_blocking=True)
+        
+        seg_masks = [x["seg_mask"] for x in data[0]]
+        seg_masks = torch.stack(seg_masks).to(dtype=self.weight_dtype, non_blocking=True)
+
+        seg_mask_images = [x["seg_mask_image"] for x in data[0]]
+        seg_mask_images = torch.stack(seg_mask_images).to(dtype=self.weight_dtype, non_blocking=True)
+        
+        hand_keypoints = [x["hand_keypoints"] for x in data[0]]
+        hand_keypoints = torch.stack(hand_keypoints).to(dtype=self.weight_dtype, non_blocking=True)
+
+        hand_keypoints_images = [x["hand_keypoints_image"] for x in data[0]]
+        hand_keypoints_images = torch.stack(hand_keypoints_images).to(dtype=self.weight_dtype, non_blocking=True)
+        
+        return {
+            "images": images,
+            "videos": videos,
+            "prompts": prompts,
+            "tracking_maps": tracking_maps,
+            "tracking_images": tracking_images,
+            "depth_maps": depth_maps,
+            "depth_images": depth_images,
+            "normal_maps": normal_maps,
+            "normal_images": normal_images,
+            "seg_masks": seg_masks,
+            "seg_mask_images": seg_mask_images,
+            "hand_keypoints": hand_keypoints,
+            "hand_keypoints_images": hand_keypoints_images,
+        }
+
 def main(args):
     if args.report_to == "wandb" and args.hub_token is not None:
         raise ValueError(
@@ -402,7 +565,16 @@ def main(args):
             revision=args.revision,
             variant=args.variant,
         )
-    else:
+    elif args.tracking_column and args.depth_column:
+        transformer = CogVideoXTransformer3DModelCombination.from_pretrained(
+            args.pretrained_model_name_or_path,
+            subfolder="transformer",
+            torch_dtype=load_dtype,
+            revision=args.revision,
+            variant=args.variant,
+            num_tracking_blocks=args.num_tracking_blocks,
+        )
+    elif args.tracking_column:
         transformer = CogVideoXTransformer3DModelTracking.from_pretrained(
             args.pretrained_model_name_or_path,
             subfolder="transformer",
@@ -477,7 +649,7 @@ def main(args):
         if accelerator.is_main_process:
             for model in models:
                 if isinstance(unwrap_model(model), type(unwrap_model(transformer))):
-                    model: CogVideoXTransformer3DModelTracking
+                    model: CogVideoXTransformer3DModelCombination
                     model = unwrap_model(model)
                     model.save_pretrained(
                         os.path.join(output_dir, "transformer"), safe_serialization=True, max_shard_size="5GB"
@@ -610,7 +782,38 @@ def main(args):
 
     # Dataset and DataLoader
     if args.video_reshape_mode is None:
-        if args.tracking_column is not None:
+        if args.tracking_column is not None and args.depth_column is not None:
+            dataset_init_kwargs = {
+                "data_root": args.data_root,
+                "dataset_file": args.dataset_file,
+                "caption_column": args.caption_column,
+                "tracking_column": args.tracking_column, 
+                "normal_column": args.normal_column,
+                "depth_column": args.depth_column,
+                "label_column": args.label_column,
+                "seg_mask_column": args.seg_mask_column,
+                "hand_keypoints_column": args.hand_keypoints_column,
+                "image_column": args.image_column,
+                "tracking_image_column": args.tracking_image_column,
+                "normal_image_column": args.normal_image_column,
+                "depth_image_column": args.depth_image_column,
+                "seg_mask_image_column": args.seg_mask_image_column,
+                "hand_keypoints_image_column": args.hand_keypoints_image_column,
+                "video_column": args.video_column,
+                "max_num_frames": args.max_num_frames,
+                "id_token": args.id_token,
+                "height_buckets": args.height_buckets,
+                "width_buckets": args.width_buckets,
+                "frame_buckets": args.frame_buckets,
+                "load_tensors": args.load_tensors,
+                "random_flip": args.random_flip,
+                "image_to_video": True,
+                "random_mask": args.random_mask,
+                "initial_frames_num": args.initial_frames_num,
+            }
+            train_dataset = HOIVideoDatasetResizing(**dataset_init_kwargs)
+
+        elif args.tracking_column is not None:
             dataset_init_kwargs = {
                 "data_root": args.data_root,
                 "dataset_file": args.dataset_file,
@@ -649,15 +852,16 @@ def main(args):
             video_reshape_mode=args.video_reshape_mode, **dataset_init_kwargs
         )
 
-    collate_fn = CollateFunction(weight_dtype, args.load_tensors)
-    collate_fn_tracking = CollateFunctionTracking(weight_dtype, args.load_tensors)
-    collate_fn_image_tracking = CollateFunctionImageTracking(weight_dtype, args.load_tensors)
+    # collate_fn = CollateFunction(weight_dtype, args.load_tensors)
+    # collate_fn_tracking = CollateFunctionTracking(weight_dtype, args.load_tensors)
+    # collate_fn_image_tracking = CollateFunctionImageTracking(weight_dtype, args.load_tensors)
+    collate_fn_multi_condition_tracking = CollateFunctionMultiCondition(weight_dtype, args.load_tensors)
 
     train_dataloader = DataLoader(
         train_dataset,
         batch_size=1,
         sampler=BucketSampler(train_dataset, batch_size=args.train_batch_size, shuffle=True),
-        collate_fn=collate_fn if args.tracking_column is None else collate_fn_image_tracking,
+        collate_fn=collate_fn_multi_condition_tracking,
         num_workers=args.dataloader_num_workers,
         pin_memory=args.pin_memory,
     )
@@ -786,7 +990,16 @@ def main(args):
                 variant=args.variant,
                 torch_dtype=weight_dtype,
             )
-        else:
+        elif args.tracking_column and args.depth_column:
+            pipe = CogVideoXImageToVideoPipelineCombination.from_pretrained(
+                args.pretrained_model_name_or_path,
+                transformer=unwrap_model(transformer),
+                scheduler=scheduler,
+                revision=args.revision,
+                variant=args.variant,
+                torch_dtype=weight_dtype,
+            )
+        elif args.tracking_column:
             pipe = CogVideoXImageToVideoPipelineTracking.from_pretrained(
                 args.pretrained_model_name_or_path,
                 transformer=unwrap_model(transformer),
@@ -806,31 +1019,44 @@ def main(args):
         validation_prompts = args.validation_prompt.split(args.validation_prompt_separator)
         validation_images = args.validation_images.split(args.validation_prompt_separator)
         
-        for validation_image, validation_prompt in zip(validation_images, validation_prompts):
-            pipeline_args = {
-                "image": load_image(validation_image),
-                "prompt": validation_prompt,
-                "negative_prompt": "The video is not of a high quality, it has a low resolution. Watermark present in each frame. The background is solid. Strange body and strange trajectory. Distortion.",
-                "guidance_scale": args.guidance_scale,
-                "use_dynamic_cfg": args.use_dynamic_cfg,
-                "height": args.height,
-                "width": args.width,
-                "max_sequence_length": model_config.max_text_seq_length,
-            }
+        # for validation_image, validation_prompt in zip(validation_images, validation_prompts):
+        #     pipeline_args = {
+        #         "image": load_image(validation_image),
+        #         "prompt": validation_prompt,
+        #         "negative_prompt": "The video is not of a high quality, it has a low resolution. Watermark present in each frame. The background is solid. Strange body and strange trajectory. Distortion.",
+        #         "guidance_scale": args.guidance_scale,
+        #         "use_dynamic_cfg": args.use_dynamic_cfg,
+        #         "height": args.height,
+        #         "width": args.width,
+        #         "max_sequence_length": model_config.max_text_seq_length,
+        #     }
 
-            if args.tracking_column is not None:
-                pipeline_args["tracking_map_path"] = args.tracking_map_path
+        #     if args.tracking_column is not None:
+        #         pipeline_args["tracking_map_path"] = args.tracking_map_path
+            
+        #     if args.depth_column is not None:
+        #         pipeline_args["depth_map_path"] = args.depth_map_path
+            
+        #     if args.normal_column is not None:
+        #         pipeline_args["normal_map_path"] = args.normal_map_path
+            
+        #     if args.seg_mask_column is not None or args.label_column is not None:
+        #         pipeline_args["seg_mask_path"] = args.seg_mask_path
+            
+        #     if args.hand_keypoints_column is not None or args.label_column is not None:
+        #         pipeline_args["hand_keypoints_path"] = args.hand_keypoints_path
 
-            log_validation(
-                accelerator=accelerator,
-                pipe=pipe,
-                vae=vae,
-                dataset=train_dataset,
-                args=args,
-                pipeline_args=pipeline_args,
-                epoch=0,
-                is_final_validation=False,
-            )
+        #     log_validation(
+        #         accelerator=accelerator,
+        #         pipe=pipe,
+        #         vae=vae,
+        #         dataset=train_dataset,
+        #         args=args,
+        #         pipeline_args=pipeline_args,
+        #         epoch=0,
+        #         is_final_validation=False,
+        #         initial_frames_num=args.initial_frames_num
+        #     )
 
         transformer.train()
         accelerator.print("===== Memory after initial validation =====")
@@ -852,7 +1078,6 @@ def main(args):
 
     for epoch in range(first_epoch, args.num_train_epochs):
         transformer.train()
-
         for step, batch in enumerate(train_dataloader):
             models_to_accumulate = [transformer]
             gradient_norm_before_clip = None
@@ -865,7 +1090,23 @@ def main(args):
 
                 if args.tracking_column is not None:
                     tracking_maps = batch["tracking_maps"].to(accelerator.device, non_blocking=True)
-                    tracking_image = tracking_maps[:,:1].clone()
+                    tracking_images = batch['tracking_images'].to(accelerator.device, non_blocking=True)
+                
+                if args.depth_column is not None:
+                    depth_maps = batch["depth_maps"].to(accelerator.device, non_blocking=True)
+                    depth_images = batch["depth_images"].to(accelerator.device, non_blocking=True)
+                
+                if args.normal_column is not None:
+                    normal_maps = batch["normal_maps"].to(accelerator.device, non_blocking=True)
+                    normal_images = batch["normal_images"].to(accelerator.device, non_blocking=True)
+                
+                if args.seg_mask_column is not None or args.label_column is not None:
+                    seg_masks = batch["seg_masks"].to(accelerator.device, non_blocking=True)
+                    seg_mask_images = batch["seg_mask_images"].to(accelerator.device, non_blocking=True) 
+                
+                if args.hand_keypoints_column is not None or args.label_column is not None:
+                    hand_keypoints = batch["hand_keypoints"].to(accelerator.device, non_blocking=True)
+                    hand_keypoints_images = batch["hand_keypoints_images"].to(accelerator.device, non_blocking=True)
 
                 # Encode videos
                 if not args.load_tensors:
@@ -884,39 +1125,141 @@ def main(args):
                         tracking_maps = tracking_maps.permute(0, 2, 1, 3, 4)  # [B, C, F, H, W]
                         tracking_latent_dist = vae.encode(tracking_maps).latent_dist
 
-                        tracking_image = tracking_image.permute(0, 2, 1, 3, 4)  # [B, C, F, H, W]
-                        tracking_image_latent_dist = vae.encode(tracking_image).latent_dist
+                        tracking_images = tracking_images.permute(0, 2, 1, 3, 4)  # [B, C, F, H, W]
+                        tracking_images_latent_dist = vae.encode(tracking_images).latent_dist
+                    
+                    if args.depth_column is not None:
+                        depth_maps = depth_maps.permute(0, 2, 1, 3, 4)
+                        depth_latent_dist = vae.encode(depth_maps).latent_dist
+
+                        depth_images = depth_images.permute(0, 2, 1, 3, 4)
+                        depth_images_latent_dist = vae.encode(depth_images).latent_dist
+                    
+                    if args.normal_column is not None:
+                        normal_maps = normal_maps.permute(0, 2, 1, 3, 4)
+                        normal_latent_dist = vae.encode(normal_maps).latent_dist
+
+                        normal_images = normal_images.permute(0, 2, 1, 3, 4)
+                        normal_images_latent_dist = vae.encode(normal_images).latent_dist
+                    
+                    if args.seg_mask_column is not None or args.label_column is not None:
+                        seg_masks = seg_masks.permute(0, 2, 1, 3, 4)
+                        seg_mask_latent_dist = vae.encode(seg_masks).latent_dist
+
+                        seg_mask_images = seg_mask_images.permute(0, 2, 1, 3, 4)
+                        seg_mask_images_latent_dist = vae.encode(seg_mask_images).latent_dist
+                    
+                    if args.hand_keypoints_column is not None or args.label_column is not None:
+                        hand_keypoints = hand_keypoints.permute(0, 2, 1, 3, 4)
+                        hand_keypoints_latent_dist = vae.encode(hand_keypoints).latent_dist
+
+                        hand_keypoints_images = hand_keypoints_images.permute(0, 2, 1, 3, 4)
+                        hand_keypoints_images_latent_dist = vae.encode(hand_keypoints_images).latent_dist
                 else:
                     latent_dist = DiagonalGaussianDistribution(videos)
                     image_latent_dist = DiagonalGaussianDistribution(images)
-
-                image_latents = image_latent_dist.sample() * VAE_SCALING_FACTOR
-                image_latents = image_latents.permute(0, 2, 1, 3, 4)  # [B, F, C, H, W]
-                image_latents = image_latents.to(memory_format=torch.contiguous_format, dtype=weight_dtype)
-
+                    
+                    tracking_latent_dist = DiagonalGaussianDistribution(tracking_maps)
+                    tracking_images_latent_dist = DiagonalGaussianDistribution(tracking_images)
+                    
+                    depth_latent_dist = DiagonalGaussianDistribution(depth_maps)
+                    depth_images_latent_dist = DiagonalGaussianDistribution(depth_images)
+                    
+                    normal_latent_dist = DiagonalGaussianDistribution(normal_maps)
+                    normal_images_latent_dist = DiagonalGaussianDistribution(normal_images)
+                    
+                    seg_mask_latent_dist = DiagonalGaussianDistribution(seg_masks)
+                    seg_mask_images_latent_dist = DiagonalGaussianDistribution(seg_mask_images)
+                    
+                    hand_keypoints_latent_dist = DiagonalGaussianDistribution(hand_keypoints)
+                    hand_keypoints_images_latent_dist = DiagonalGaussianDistribution(hand_keypoints_images)
+                
                 video_latents = latent_dist.sample() * VAE_SCALING_FACTOR
                 video_latents = video_latents.permute(0, 2, 1, 3, 4)  # [B, F, C, H, W]
                 video_latents = video_latents.to(memory_format=torch.contiguous_format, dtype=weight_dtype)
+                
+                if args.tracking_column is not None:
+                    tracking_maps_latents = tracking_latent_dist.sample() * VAE_SCALING_FACTOR
+                    tracking_maps_latents = tracking_maps_latents.permute(0, 2, 1, 3, 4)  # [B, F, C, H, W]
+                    tracking_maps_latents = tracking_maps_latents.to(memory_format=torch.contiguous_format, dtype=weight_dtype)
+                
+                if args.depth_column is not None:
+                    depth_maps_latents = depth_latent_dist.sample() * VAE_SCALING_FACTOR
+                    depth_maps_latents = depth_maps_latents.permute(0, 2, 1, 3, 4)
+                    depth_maps_latents = depth_maps_latents.to(memory_format=torch.contiguous_format, dtype=weight_dtype)
+                
+                if args.normal_column is not None:
+                    normal_maps_latents = normal_latent_dist.sample() * VAE_SCALING_FACTOR
+                    normal_maps_latents = normal_maps_latents.permute(0, 2, 1, 3, 4)
+                    normal_maps_latents = normal_maps_latents.to(memory_format=torch.contiguous_format, dtype=weight_dtype)
+                
+                if args.seg_mask_column is not None or args.label_column is not None:
+                    seg_masks_latents = seg_mask_latent_dist.sample() * VAE_SCALING_FACTOR
+                    seg_masks_latents = seg_masks_latents.permute(0, 2, 1, 3, 4)
+                    seg_masks_latents = seg_masks_latents.to(memory_format=torch.contiguous_format, dtype=weight_dtype)
+                
+                if args.hand_keypoints_column is not None or args.label_column is not None:
+                    hand_keypoints_latents = hand_keypoints_latent_dist.sample() * VAE_SCALING_FACTOR
+                    hand_keypoints_latents = hand_keypoints_latents.permute(0, 2, 1, 3, 4)
+                    hand_keypoints_latents = hand_keypoints_latents.to(memory_format=torch.contiguous_format, dtype=weight_dtype)
 
                 padding_shape = (video_latents.shape[0], video_latents.shape[1] - 1, *video_latents.shape[2:])
+                
+                # Encode first frame image
+                image_latents = image_latent_dist.sample() * VAE_SCALING_FACTOR
+                image_latents = image_latents.permute(0, 2, 1, 3, 4)  # [B, F, C, H, W]
+                image_latents = image_latents.to(memory_format=torch.contiguous_format, dtype=weight_dtype)
+                
                 latent_padding = image_latents.new_zeros(padding_shape)
                 image_latents = torch.cat([image_latents, latent_padding], dim=1)
+                
+                # Encode tracking image
+                tracking_images_latent_dist = tracking_images_latent_dist.sample() * VAE_SCALING_FACTOR
+                tracking_images_latent_dist = tracking_images_latent_dist.permute(0, 2, 1, 3, 4)  # [B, F, C, H, W]
+                tracking_images_latent_dist = tracking_images_latent_dist.to(memory_format=torch.contiguous_format, dtype=weight_dtype)
 
-                tracking_image_latent_dist = tracking_image_latent_dist.sample() * VAE_SCALING_FACTOR
-                tracking_image_latent_dist = tracking_image_latent_dist.permute(0, 2, 1, 3, 4)  # [B, F, C, H, W]
-                tracking_image_latent_dist = tracking_image_latent_dist.to(memory_format=torch.contiguous_format, dtype=weight_dtype)
+                tracking_latent_padding = tracking_images_latent_dist.new_zeros(padding_shape)
+                tracking_images_latents = torch.cat([tracking_images_latent_dist, tracking_latent_padding], dim=1)
 
-                tracking_latent_padding = tracking_image_latent_dist.new_zeros(padding_shape)
-                tracking_image_latents = torch.cat([tracking_image_latent_dist, tracking_latent_padding], dim=1)
+                # Encode depth image
+                depth_images_latent_dist = depth_images_latent_dist.sample() * VAE_SCALING_FACTOR
+                depth_images_latent_dist = depth_images_latent_dist.permute(0, 2, 1, 3, 4)  # [B, F, C, H, W]
+                depth_images_latent_dist = depth_images_latent_dist.to(memory_format=torch.contiguous_format, dtype=weight_dtype)
+
+                depth_latent_padding = depth_images_latent_dist.new_zeros(padding_shape)
+                depth_images_latents = torch.cat([depth_images_latent_dist, depth_latent_padding], dim=1)
+
+                # Encode normal image
+                normal_images_latent_dist = normal_images_latent_dist.sample() * VAE_SCALING_FACTOR
+                normal_images_latent_dist = normal_images_latent_dist.permute(0, 2, 1, 3, 4)  # [B, F, C, H, W]
+                normal_images_latent_dist = normal_images_latent_dist.to(memory_format=torch.contiguous_format, dtype=weight_dtype)
+
+                normal_latent_padding = normal_images_latent_dist.new_zeros(padding_shape)
+                normal_images_latents = torch.cat([normal_images_latent_dist, normal_latent_padding], dim=1)
+
+                # Encode seg mask
+                seg_mask_images_latent_dist = seg_mask_images_latent_dist.sample() * VAE_SCALING_FACTOR
+                seg_mask_images_latent_dist = seg_mask_images_latent_dist.permute(0, 2, 1, 3, 4)  # [B, F, C, H, W]
+                seg_mask_images_latent_dist = seg_mask_images_latent_dist.to(memory_format=torch.contiguous_format, dtype=weight_dtype)
+
+                seg_mask_latent_padding = seg_mask_images_latent_dist.new_zeros(padding_shape)
+                seg_mask_images_latents = torch.cat([seg_mask_images_latent_dist, seg_mask_latent_padding], dim=1)
+
+                # Encode hand keypoints
+                hand_keypoints_images_latent_dist = hand_keypoints_images_latent_dist.sample() * VAE_SCALING_FACTOR
+                hand_keypoints_images_latent_dist = hand_keypoints_images_latent_dist.permute(0, 2, 1, 3, 4)  # [B, F, C, H, W]
+                hand_keypoints_images_latent_dist = hand_keypoints_images_latent_dist.to(memory_format=torch.contiguous_format, dtype=weight_dtype)
+
+                hand_keypoints_latent_padding = hand_keypoints_images_latent_dist.new_zeros(padding_shape)
+                hand_keypoints_images_latents = torch.cat([hand_keypoints_images_latent_dist, hand_keypoints_latent_padding], dim=1)
 
                 if random.random() < args.noised_image_dropout:
                     image_latents = torch.zeros_like(image_latents)
-                    tracking_image_latents = torch.zeros_like(tracking_image_latents)
-
-                if args.tracking_column is not None:
-                    tracking_maps = tracking_latent_dist.sample() * VAE_SCALING_FACTOR
-                    tracking_maps = tracking_maps.permute(0, 2, 1, 3, 4)  # [B, F, C, H, W]
-                    tracking_maps = tracking_maps.to(memory_format=torch.contiguous_format, dtype=weight_dtype)
+                    tracking_images_latents = torch.zeros_like(tracking_images_latents)
+                    depth_images_latents = torch.zeros_like(depth_images_latents)
+                    normal_images_latents = torch.zeros_like(normal_images_latents)
+                    seg_mask_images_latents = torch.zeros_like(seg_mask_images_latents)
+                    hand_keypoints_images_latents = torch.zeros_like(hand_keypoints_images_latents)
 
                 # Encode prompts
                 if not args.load_tensors:
@@ -964,7 +1307,11 @@ def main(args):
                 # (this is the forward diffusion process)
                 noisy_video_latents = scheduler.add_noise(video_latents, noise, timesteps)
                 noisy_model_input = torch.cat([noisy_video_latents, image_latents], dim=2)
-                tracking_latents = torch.cat([tracking_maps, tracking_image_latents], dim=2)
+                tracking_latents = torch.cat([tracking_maps_latents, tracking_images_latents], dim=2)
+                depth_latents = torch.cat([depth_maps_latents, depth_images_latents], dim=2)
+                normal_latents = torch.cat([normal_maps_latents, normal_images_latents], dim=2)
+                seg_mask_latents = torch.cat([seg_masks_latents, seg_mask_images_latents], dim=2)
+                hand_keypoints_latents = torch.cat([hand_keypoints_latents, hand_keypoints_images_latents], dim=2)
 
                 if args.tracking_column is None:
                     model_output = transformer(
@@ -979,6 +1326,10 @@ def main(args):
                         hidden_states=noisy_model_input,
                         encoder_hidden_states=prompt_embeds,
                         tracking_maps=tracking_latents,
+                        depth_maps=depth_latents,
+                        normal_maps=normal_latents,
+                        seg_masks=seg_mask_latents,
+                        hand_keypoints=hand_keypoints_latents,
                         timestep=timesteps,
                         image_rotary_emb=image_rotary_emb,
                         return_dict=False,
@@ -1057,7 +1408,7 @@ def main(args):
 
             if global_step >= args.max_train_steps:
                 break
-
+        
         if accelerator.is_main_process:
             if args.validation_prompt is not None and (epoch + 1) % args.validation_epochs == 0:
                 accelerator.print("===== Memory before validation =====")
@@ -1067,6 +1418,15 @@ def main(args):
 
                 if args.tracking_column is None:
                     pipe = CogVideoXImageToVideoPipeline.from_pretrained(
+                        args.pretrained_model_name_or_path,
+                        transformer=unwrap_model(transformer),
+                        scheduler=scheduler,
+                        revision=args.revision,
+                        variant=args.variant,
+                        torch_dtype=weight_dtype,
+                    )
+                elif args.tracking_column and args.depth_column:
+                    pipe = CogVideoXImageToVideoPipelineCombination.from_pretrained(
                         args.pretrained_model_name_or_path,
                         transformer=unwrap_model(transformer),
                         scheduler=scheduler,
@@ -1097,18 +1457,31 @@ def main(args):
                 
                 for validation_image, validation_prompt in zip(validation_images, validation_prompts):
                     pipeline_args = {
-                        "image": load_image(validation_image),
-                        "prompt": validation_prompt,
-                        "negative_prompt": "The video is not of a high quality, it has a low resolution. Watermark present in each frame. The background is solid. Strange body and strange trajectory. Distortion.",
-                        "guidance_scale": args.guidance_scale,
-                        "use_dynamic_cfg": args.use_dynamic_cfg,
-                        "height": args.height,
-                        "width": args.width,
-                        "max_sequence_length": model_config.max_text_seq_length,
-                    }
+                            "image": load_image(validation_image),
+                            "prompt": validation_prompt,
+                            "negative_prompt": "The video is not of a high quality, it has a low resolution. Watermark present in each frame. The background is solid. Strange body and strange trajectory. Distortion.",
+                            "guidance_scale": args.guidance_scale,
+                            "use_dynamic_cfg": args.use_dynamic_cfg,
+                            "height": args.height,
+                            "width": args.width,
+                            "max_sequence_length": model_config.max_text_seq_length,
+                            "initial_frames_num": args.initial_frames_num
+                        }
 
                     if args.tracking_column is not None:
                         pipeline_args["tracking_map_path"] = args.tracking_map_path
+                    
+                    if args.depth_column is not None:
+                        pipeline_args["depth_map_path"] = args.depth_map_path
+                    
+                    if args.normal_column is not None:
+                        pipeline_args["normal_map_path"] = args.normal_map_path
+                    
+                    if args.seg_mask_column is not None or args.label_column is not None:
+                        pipeline_args["seg_mask_path"] = args.seg_mask_path
+                    
+                    if args.hand_keypoints_column is not None or args.label_column is not None:
+                        pipeline_args["hand_keypoints_path"] = args.hand_keypoints_path
 
                     log_validation(
                         accelerator=accelerator,
@@ -1117,8 +1490,9 @@ def main(args):
                         dataset=train_dataset,
                         args=args,
                         pipeline_args=pipeline_args,
-                        epoch=(epoch + 1),
+                        epoch=0,
                         is_final_validation=False,
+                        initial_frames_num=args.initial_frames_num
                     )
 
                 transformer.train()
@@ -1152,10 +1526,18 @@ def main(args):
                 variant=args.variant,
                 torch_dtype=dtype,
             )
+        elif args.tracking_column and args.depth_column:
+            pipe = CogVideoXImageToVideoPipelineCombination.from_pretrained(
+                args.pretrained_model_name_or_path,
+                transformer=transformer,  # Use trained transformer 
+                revision=args.revision,
+                variant=args.variant,
+                torch_dtype=dtype,
+            )
         else:
             pipe = CogVideoXImageToVideoPipelineTracking.from_pretrained(
                 args.pretrained_model_name_or_path,
-                transformer=transformer,  # Use trained transformer 
+                transformer=transformer,  # Use trained transformer
                 revision=args.revision,
                 variant=args.variant,
                 torch_dtype=dtype,
@@ -1217,18 +1599,31 @@ def main(args):
             
             for validation_image, validation_prompt in zip(validation_images, validation_prompts):
                 pipeline_args = {
-                    "image": load_image(validation_image),
-                    "prompt": validation_prompt,
-                    "negative_prompt": "The video is not of a high quality, it has a low resolution. Watermark present in each frame. The background is solid. Strange body and strange trajectory. Distortion.",
-                    "guidance_scale": args.guidance_scale,
-                    "use_dynamic_cfg": args.use_dynamic_cfg,
-                    "height": args.height,
-                    "width": args.width,
-                    "max_sequence_length": model_config.max_text_seq_length,
-                }
+                        "image": load_image(validation_image),
+                        "prompt": validation_prompt,
+                        "negative_prompt": "The video is not of a high quality, it has a low resolution. Watermark present in each frame. The background is solid. Strange body and strange trajectory. Distortion.",
+                        "guidance_scale": args.guidance_scale,
+                        "use_dynamic_cfg": args.use_dynamic_cfg,
+                        "height": args.height,
+                        "width": args.width,
+                        "max_sequence_length": model_config.max_text_seq_length,
+                        "initial_frames_num": args.initial_frames_num
+                    }
 
                 if args.tracking_column is not None:
                     pipeline_args["tracking_map_path"] = args.tracking_map_path
+                
+                if args.depth_column is not None:
+                    pipeline_args["depth_map_path"] = args.depth_map_path
+                
+                if args.normal_column is not None:
+                    pipeline_args["normal_map_path"] = args.normal_map_path
+                
+                if args.seg_mask_column is not None or args.label_column is not None:
+                    pipeline_args["seg_mask_path"] = args.seg_mask_path
+                
+                if args.hand_keypoints_column is not None or args.label_column is not None:
+                    pipeline_args["hand_keypoints_path"] = args.hand_keypoints_path
 
                 video = log_validation(
                     accelerator=accelerator,
@@ -1237,8 +1632,9 @@ def main(args):
                     dataset=train_dataset,
                     args=args,
                     pipeline_args=pipeline_args,
-                    epoch=(epoch + 1),
-                    is_final_validation=True,
+                    epoch=0,
+                    is_final_validation=False,
+                    initial_frames_num=args.initial_frames_num
                 )
                 validation_outputs.extend(video)
 

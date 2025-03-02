@@ -19,14 +19,14 @@ from diffusers.utils import export_to_video, load_image, load_video
 
 from models.spatracker.predictor import SpaTrackerPredictor
 from models.spatracker.utils.visualizer import Visualizer
-from models.cogvideox_tracking import CogVideoXImageToVideoPipelineTracking
+from models.cogvideox_tracking import CogVideoXImageToVideoPipelineTracking, CogVideoXTransformer3DModelTracking
 
 from submodules.MoGe.moge.model import MoGeModel
 from image_gen_aux import DepthPreprocessor
 from moviepy.editor import ImageSequenceClip
 
 class DiffusionAsShaderPipeline:
-    def __init__(self, gpu_id=0, output_dir='outputs'):
+    def __init__(self, model_path, transformer_path, gpu_id=0, output_dir='outputs', dtype: torch.dtype = torch.bfloat16):
         """Initialize MotionTransfer class
         
         Args:
@@ -55,11 +55,13 @@ class DiffusionAsShaderPipeline:
             transforms.ToTensor()
         ])
 
+        transformer = CogVideoXTransformer3DModelTracking.from_pretrained(transformer_path, torch_dtype=dtype)
+        self.pipe = CogVideoXImageToVideoPipelineTracking.from_pretrained(model_path, torch_dtype=dtype, transformer=transformer)
+
     @torch.no_grad()
     def _infer(
         self, 
         prompt: str,
-        model_path: str,
         tracking_tensor: torch.Tensor = None,
         image_tensor: torch.Tensor = None,  # [C,H,W] in range [0,1]
         output_path: str = "./output.mp4",
@@ -85,7 +87,7 @@ class DiffusionAsShaderPipeline:
         - dtype (torch.dtype): The data type for computation.
         - seed (int): The seed for reproducibility.
         """
-        pipe = CogVideoXImageToVideoPipelineTracking.from_pretrained(model_path, torch_dtype=dtype)
+        pipe = self.pipe
         
         # Convert tensor to PIL Image
         image_np = (image_tensor.permute(1, 2, 0).numpy() * 255).astype(np.uint8)
@@ -432,7 +434,7 @@ class DiffusionAsShaderPipeline:
 
         return tracking_path, tracking_video
     
-    def apply_tracking(self, video_tensor, fps=8, tracking_tensor=None, img_cond_tensor=None, prompt=None, checkpoint_path=None):
+    def apply_tracking(self, video_tensor, fps=8, tracking_tensor=None, img_cond_tensor=None, prompt=None):
         """Generate final video with motion transfer
         
         Args:
@@ -450,10 +452,10 @@ class DiffusionAsShaderPipeline:
             img_cond_tensor = video_tensor[0]
         
         # Generate final video
+
         final_output = os.path.join(os.path.abspath(self.output_dir), "result.mp4")
         self._infer(
             prompt=prompt,
-            model_path=checkpoint_path,
             tracking_tensor=tracking_tensor,
             image_tensor=img_cond_tensor,
             output_path=final_output,
