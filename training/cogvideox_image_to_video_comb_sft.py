@@ -75,6 +75,26 @@ from models.cogvidex_combination import CogVideoXTransformer3DModelCombination, 
 
 logger = get_logger(__name__)
 
+def load_vae(args, device, weight_dtype):
+    vae = AutoencoderKLCogVideoX.from_pretrained(
+        args.pretrained_model_name_or_path,
+        subfolder="vae",  
+        revision=args.revision,
+        variant=args.variant
+    )
+    
+    if args.enable_slicing:
+        vae.enable_slicing()
+    if args.enable_tiling:
+        vae.enable_tiling()
+        
+    vae.requires_grad_(False)
+    vae.to(device, dtype=weight_dtype)
+    
+    vae.eval()
+    
+    return vae
+
 def save_model_card(
     repo_id: str,
     videos=None,
@@ -198,7 +218,7 @@ def log_validation(
     except:
         hand_keypoints = None
     
-    if tracking_map_path and args.load_tensors is False:
+    if tracking_map_path:
         from torchvision.transforms.functional import resize
         from torchvision import transforms
         
@@ -507,6 +527,7 @@ def main(args):
         project_config=accelerator_project_config,
         kwargs_handlers=[ddp_kwargs, init_process_group_kwargs],
     )
+    
 
     # Disable AMP for MPS.
     if torch.backends.mps.is_available():
@@ -1015,7 +1036,7 @@ def main(args):
             pipe.vae.enable_tiling()
         if args.enable_model_cpu_offload:
             pipe.enable_model_cpu_offload()
-
+        
         validation_prompts = args.validation_prompt.split(args.validation_prompt_separator)
         validation_images = args.validation_images.split(args.validation_prompt_separator)
         
@@ -1049,7 +1070,7 @@ def main(args):
         #     log_validation(
         #         accelerator=accelerator,
         #         pipe=pipe,
-        #         vae=vae,
+        #         vae=pipe.vae,
         #         dataset=train_dataset,
         #         args=args,
         #         pipeline_args=pipeline_args,
@@ -1313,6 +1334,16 @@ def main(args):
                 seg_mask_latents = torch.cat([seg_masks_latents, seg_mask_images_latents], dim=2)
                 hand_keypoints_latents = torch.cat([hand_keypoints_latents, hand_keypoints_images_latents], dim=2)
 
+                # torch.save(video_latents.cpu(), "tmp/latents/video_latents.pt")
+                # torch.save(image_latents.cpu(), "tmp/latents/image_latents.pt")
+                # torch.save(noisy_model_input.cpu(), "tmp/latents/noisy_model_input.pt")
+                # torch.save(tracking_latents.cpu(), "tmp/latents/tracking_latents.pt")
+                # torch.save(depth_latents.cpu(), "tmp/latents/depth_latents.pt")
+                # torch.save(normal_latents.cpu(), "tmp/latents/normal_latents.pt")
+                # torch.save(seg_mask_latents.cpu(), "tmp/latents/seg_mask_latents.pt")
+                # torch.save(hand_keypoints_latents.cpu(), "tmp/latents/hand_keypoints_latents.pt")
+                # exit()
+                
                 if args.tracking_column is None:
                     model_output = transformer(
                         hidden_states=noisy_model_input,
@@ -1465,7 +1496,6 @@ def main(args):
                             "height": args.height,
                             "width": args.width,
                             "max_sequence_length": model_config.max_text_seq_length,
-                            "initial_frames_num": args.initial_frames_num
                         }
 
                     if args.tracking_column is not None:
@@ -1482,7 +1512,9 @@ def main(args):
                     
                     if args.hand_keypoints_column is not None or args.label_column is not None:
                         pipeline_args["hand_keypoints_path"] = args.hand_keypoints_path
-
+                    
+                    vae = load_vae(args, device=accelerator.device, weight_dtype=weight_dtype)
+                    
                     log_validation(
                         accelerator=accelerator,
                         pipe=pipe,
@@ -1490,10 +1522,12 @@ def main(args):
                         dataset=train_dataset,
                         args=args,
                         pipeline_args=pipeline_args,
-                        epoch=0,
+                        epoch=epoch,
                         is_final_validation=False,
                         initial_frames_num=args.initial_frames_num
                     )
+                    
+                    del vae
 
                 transformer.train()
                 accelerator.print("===== Memory after validation =====")
@@ -1607,7 +1641,6 @@ def main(args):
                         "height": args.height,
                         "width": args.width,
                         "max_sequence_length": model_config.max_text_seq_length,
-                        "initial_frames_num": args.initial_frames_num
                     }
 
                 if args.tracking_column is not None:
@@ -1624,6 +1657,8 @@ def main(args):
                 
                 if args.hand_keypoints_column is not None or args.label_column is not None:
                     pipeline_args["hand_keypoints_path"] = args.hand_keypoints_path
+                    
+                vae = load_vae(args, device=accelerator.device, dtype=weight_dtype)
 
                 video = log_validation(
                     accelerator=accelerator,
@@ -1632,7 +1667,7 @@ def main(args):
                     dataset=train_dataset,
                     args=args,
                     pipeline_args=pipeline_args,
-                    epoch=0,
+                    epoch=epoch,
                     is_final_validation=False,
                     initial_frames_num=args.initial_frames_num
                 )

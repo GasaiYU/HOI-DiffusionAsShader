@@ -43,12 +43,12 @@ def test_video_latent(
     vae: AutoencoderKLCogVideoX,
     output_dir: str,
 ):
-    depth_video_latent =  torch.load('data/dexycb_latents/tmp/depth_latents/0/1b278c31-5bd5-4383-b1de-0f0f90cfbfc0.pt', weights_only=True)
-    normal_video_latent = torch.load('data/dexycb_latents/tmp/normal_latents/0/1b278c31-5bd5-4383-b1de-0f0f90cfbfc0.pt', weights_only=True)
-    hand_keypoints_video_latent = torch.load('data/dexycb_latents/tmp/hand_keypoints_latents/0/1b278c31-5bd5-4383-b1de-0f0f90cfbfc0.pt', weights_only=True)
-    seg_mask_video_latent = torch.load('data/dexycb_latents/tmp/seg_mask_latents/0/1b278c31-5bd5-4383-b1de-0f0f90cfbfc0.pt', weights_only=True)
-    tracking_video_latent = torch.load('data/dexycb_latents/tmp/tracking_latents/0/1b278c31-5bd5-4383-b1de-0f0f90cfbfc0.pt', weights_only=True)
-    video = torch.load('data/dexycb_latents/tmp/video_latents/0/1b278c31-5bd5-4383-b1de-0f0f90cfbfc0.pt', weights_only=True)
+    depth_video_latent =  torch.load('data/dexycb_latents/depth_latents/1b278c31-5bd5-4383-b1de-0f0f90cfbfc0.pt', weights_only=True)
+    normal_video_latent = torch.load('data/dexycb_latents/normal_latents/1b278c31-5bd5-4383-b1de-0f0f90cfbfc0.pt', weights_only=True)
+    hand_keypoints_video_latent = torch.load('data/dexycb_latents/hand_keypoints_latents/1b278c31-5bd5-4383-b1de-0f0f90cfbfc0.pt', weights_only=True)
+    seg_mask_video_latent = torch.load('data/dexycb_latents/seg_mask_latents/1b278c31-5bd5-4383-b1de-0f0f90cfbfc0.pt', weights_only=True)
+    tracking_video_latent = torch.load('data/dexycb_latents/tracking_latents/1b278c31-5bd5-4383-b1de-0f0f90cfbfc0.pt', weights_only=True)
+    video = torch.load('data/dexycb_latents/video_latents/1b278c31-5bd5-4383-b1de-0f0f90cfbfc0.pt', weights_only=True)
     
     latent_dict = {
         "depth_video": depth_video_latent,
@@ -73,7 +73,57 @@ def test_video_latent(
         for frame in decoded_latent:
             video_writer.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
         video_writer.release()
+
+def test_model_input(
+    vae: AutoencoderKLCogVideoX,
+    output_dir: str,
+):
+    depth_latents = torch.load('tmp/latents/depth_latents.pt', weights_only=True)
+    hand_keypoints_latents = torch.load('tmp/latents/hand_keypoints_latents.pt', weights_only=True)
+    image_latents = torch.load('tmp/latents/image_latents.pt', weights_only=True)
+    normal_latents = torch.load('tmp/latents/normal_latents.pt', weights_only=True)
+    seg_mask_latents = torch.load('tmp/latents/seg_mask_latents.pt', weights_only=True)
+    tracking_latents = torch.load('tmp/latents/tracking_latents.pt', weights_only=True)
+    video_latents = torch.load('tmp/latents/video_latents.pt', weights_only=True)
+    
+    latent_dict = {
+        "depth": depth_latents,
+        "hand_keypoints": hand_keypoints_latents,
+        "normal": normal_latents,
+        "seg_mask": seg_mask_latents,
+        "tracking": tracking_latents,
+    }
+    
+    scaling_factor = vae.config.scaling_factor
+    
+    for name, latent in latent_dict.items():
+        video_latents, image_latents = latent.chunk(2, dim=2)
         
+        video_latents = video_latents.squeeze(0)
+        video_latents = video_latents.permute(1, 0, 2, 3) / scaling_factor
+        decoded_video_latents = vae.decode(video_latents.unsqueeze(0).to('cuda')).sample.float()
+        
+        image_latents = image_latents.squeeze(0)
+        image_latents = image_latents.permute(1, 0, 2, 3) / scaling_factor
+        decoded_image_latents = vae.decode(image_latents[:, :1, ...].unsqueeze(0).to('cuda')).sample.float()
+        
+        decoded_video_latents = decoded_video_latents.cpu().numpy()
+        decoded_video_latents = (decoded_video_latents + 1) / 2
+        decoded_video_latents = np.clip(decoded_video_latents, 0, 1)
+        decoded_video_latents = (decoded_video_latents * 255).astype(np.uint8)[0]
+        decoded_video_latents = np.transpose(decoded_video_latents, (1, 2, 3, 0))
+        video_writer = cv2.VideoWriter(os.path.join(output_dir, f"{name}_video.mp4"), fourcc=cv2.VideoWriter_fourcc(*'mp4v'), fps=15, frameSize=(decoded_video_latents.shape[2], decoded_video_latents.shape[1]))
+        for frame in decoded_video_latents:
+            video_writer.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+        video_writer.release()
+        
+        decoded_image_latents = decoded_image_latents.cpu().numpy()
+        decoded_image_latents = (decoded_image_latents + 1) / 2
+        decoded_image_latents = np.clip(decoded_image_latents, 0, 1)
+        decoded_image_latents = (decoded_image_latents * 255).astype(np.uint8)[0]
+        decoded_image_latents = np.transpose(decoded_image_latents, (1, 2, 3, 0))
+        cv2.imwrite(os.path.join(output_dir, f"{name}_image.png"), cv2.cvtColor(decoded_image_latents[0], cv2.COLOR_RGB2BGR))
+    pass
         
 if __name__ == "__main__":
     vae = AutoencoderKLCogVideoX.from_pretrained(
@@ -86,9 +136,10 @@ if __name__ == "__main__":
     vae.enable_tiling()
     vae.requires_grad_(False)
     
-    output_dir = 'tmp'
+    output_dir = 'tmp/test_input'
     os.makedirs(output_dir, exist_ok=True)
     
-    test_image_latent(vae, output_dir)
-    test_video_latent(vae, output_dir)
+    # test_image_latent(vae, output_dir)
+    # test_video_latent(vae, output_dir)
+    test_model_input(vae, output_dir)
 

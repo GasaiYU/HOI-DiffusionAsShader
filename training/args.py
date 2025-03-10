@@ -98,37 +98,37 @@ def _get_dataset_args(parser: argparse.ArgumentParser) -> None:
         help="The column of the dataset containing the hand keypoints for each video. Or, the name of the file in `--data_root` folder containing the line-separated hand keypoints.",
     )
     parser.add_argument(
-        "image_column",
+        "--image_column",
         type=str,
         default=None,
         help="The column of the dataset containing the image for each video. Or, the name of the file in `--data_root` folder containing the line-separated images.",
     )
     parser.add_argument(
-        "tracking_image_column",
+        "--tracking_image_column",
         type=str,
         default=None,
         help="The column of the dataset containing the tracking map image for each video. Or, the name of the file in `--data_root` folder containing the line-separated tracking map images.",
     )
     parser.add_argument(
-        "normal_image_column",
+        "--normal_image_column",
         type=str,
         default=None,
         help="The column of the dataset containing the normal map image for each video. Or, the name of the file in `--data_root` folder containing the line-separated normal map images.",
     )
     parser.add_argument(
-        "depth_image_column",
+        "--depth_image_column",
         type=str,
         default=None,
         help="The column of the dataset containing the depth map image for each video. Or, the name of the file in `--data_root` folder containing the line-separated depth map images."
     )
     parser.add_argument(
-        "seg_mask_image_column",
+        "--seg_mask_image_column",
         type=str,
         default=None,
         help="The column of the dataset containing the segmentation mask image for each video. Or, the name of the file in `--data_root` folder containing the line-separated segmentation mask images."
     )
     parser.add_argument(
-        "hand_keypoints_image_column",
+        "--hand_keypoints_image_column",
         type=str,
         default=None,
         help="The column of the dataset containing the hand keypoints image for each video. Or, the name of the file in `--data_root` folder containing the line-separated hand keypoints images."

@@ -160,11 +160,12 @@ CLASS_PROTOCAL = [
   ]
 
 
-def showHandJoints(imgInOrg, gtIn, filename=None):
+def showHandJoints(imgInOrg, gtIn, gtIn3D=None, filename=None):
     '''
     Utility function for displaying hand annotations
     :param imgIn: image on which annotation is shown
     :param gtIn: ground truth annotation
+    :param gtIn3D: 3D ground truth annotation
     :param filename: dump image name
     :return:
     '''
@@ -201,8 +202,12 @@ def showHandJoints(imgInOrg, gtIn, filename=None):
              [18, 19],
              [19, 20]]
 
-    # For thumbs on the top layer
-    limbs.reverse()
+    # Judge the order of limbs
+    reverse = False
+    if gtIn3D is not None:
+        if gtIn3D[0, 2] < gtIn3D[-1, 2]: 
+            # Thumbs on the top layer because the z value is smaller, draw finally
+            reverse = True
 
     PYTHON_VERSION = sys.version_info[0]
 
@@ -232,8 +237,8 @@ def showHandJoints(imgInOrg, gtIn, filename=None):
 
                     cv2.circle(imgIn, center=(gtIn[joint_num][0], gtIn[joint_num][1]), radius=3, color=joint_color, thickness=-1)
 
-            for limb_num in range(len(limbs)):
-
+            range_indices = range(len(limbs)) if not reverse else range(len(limbs) - 1, -1, -1)
+            for limb_num in range_indices:
                 x1 = gtIn[limbs[limb_num][0], 1]
                 y1 = gtIn[limbs[limb_num][0], 0]
                 x2 = gtIn[limbs[limb_num][1], 1]
@@ -241,7 +246,7 @@ def showHandJoints(imgInOrg, gtIn, filename=None):
                 length = ((x1 - x2) ** 2 + (y1 - y2) ** 2) ** 0.5
                 if length < 150 and length > 5:
                     deg = math.degrees(math.atan2(x1 - x2, y1 - y2))
-                    if limb_num >= len(limbs) - 4:
+                    if limb_num < 4:
                         polygon = cv2.ellipse2Poly((int((y1 + y2) / 2), int((x1 + x2) / 2)),
                                                 (int(length / 2), 6),
                                                 int(deg),

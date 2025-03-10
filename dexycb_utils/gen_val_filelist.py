@@ -1,7 +1,7 @@
 import os
 import json
 
-if __name__ == "__main__":
+def test():
     tracking_training_filelist = 'data/dexycb_filelist/archive/baseline_train_videos.txt'
     depth_training_filelist = 'data/dexycb_filelist/archive/dexycb_depth_training_videos.txt'
     all_videos_filelist = 'data/dexycb_filelist/videos.txt'
@@ -93,3 +93,20 @@ if __name__ == "__main__":
     #         f.write(video + '\n')
 
     pass
+
+if __name__ == "__main__":
+    val_video_filelist = '../data/dexycb_filelist/val_videos.txt'
+    with open(val_video_filelist, 'r') as f:
+        val_videos = f.read().splitlines()
+    
+    normal_videos = []
+    for video in val_videos:
+        normal_video = video.replace('dexycb_videos', 'dexycb_normal/dexycb_videos')
+        if os.path.exists(os.path.join('..',normal_video)):
+            normal_videos.append(normal_video)
+        else:
+            print(f"Normal video {normal_video} does not exist")
+    
+    with open('../data/dexycb_filelist/val_normals.txt', 'w') as f:
+        for video in normal_videos:
+            f.write(video + '\n')

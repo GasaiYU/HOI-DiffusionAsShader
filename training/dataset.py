@@ -760,7 +760,7 @@ class HOIVideoDatasetResizing(VideoDataset):
             tracking_frames = torch.zeros_like(frames)
         
         # Read normal videos
-        if normal_path is not None and (random.random() < 0.7 or not self.random_mask):
+        if normal_path is not None and (random.random() < 0.7 or not self.random_mask) and False:
             normal_reader = decord.VideoReader(uri=normal_path.as_posix())
             normal_frames = normal_reader.get_batch(frame_indices[:nearest_frame_bucket])
             normal_frames = normal_frames[:nearest_frame_bucket].float()
@@ -797,7 +797,7 @@ class HOIVideoDatasetResizing(VideoDataset):
                 label = np.load(label_path.joinpath(file))
                 masks.append(label["seg"])
                 colored_masks.append(convert_gray_to_color(label["seg"]))  
-                hand_keypoints.append(showHandJoints(np.zeros(list(nearest_res) + [3], dtype=np.uint8), label["joint_2d"][0]))
+                hand_keypoints.append(showHandJoints(np.zeros(list(nearest_res) + [3], dtype=np.uint8), label["joint_2d"][0], label["joint_3d"][0]))
             
             # Get colored semantic masks
             colored_masks = torch.from_numpy(np.stack(colored_masks, axis=0)).float()
@@ -817,7 +817,7 @@ class HOIVideoDatasetResizing(VideoDataset):
             masks[masks > 0] = 1
             masks = masks.repeat(1, 3, 1, 1)
             depth_frames[masks == 0] = -1.0
-            normal_frames[masks == 0] = -1.0
+            # normal_frames[masks == 0] = -1.0
 
             if self.random_mask and random.random() > 0.8:
                 colored_masks = torch.zeros_like(frames)
@@ -931,56 +931,64 @@ class HOIVideoDatasetResizing(VideoDataset):
                     "Expected `--seg_mask` to be path to a directory in `--data_root` containing semantic segmentation information."
                 )
             elif seg_mask_path is not None:
-                seg_mask_paths = [self.data_root.joinpath(line.strip()) for line in seg_mask_path.readlines() if len(line.strip()) > 0]
+                with open(seg_mask_path, "r") as file:
+                    seg_mask_paths = [self.data_root.joinpath(line.strip()) for line in file.readlines() if len(line.strip()) > 0]
 
             if hand_keypoints_path is not None and (not hand_keypoints_path.exists() or not hand_keypoints_path.is_file()):
                 raise ValueError(
                     "Expected `--hand_keypoints` to be path to a directory in `--data_root` containing hand keypoints information."
                 )
             elif hand_keypoints_path is not None:
-                hand_keypoints_paths = [self.data_root.joinpath(line.strip()) for line in hand_keypoints_path.readlines() if len(line.strip()) > 0]
+                with open(hand_keypoints_path, "r") as file:
+                    hand_keypoints_paths = [self.data_root.joinpath(line.strip()) for line in file.readlines() if len(line.strip()) > 0]
 
             if image_path is not None and (not image_path.exists() or not image_path.is_file()):
                 raise ValueError(
                     "Expected `--image` to be path to a directory in `--data_root` containing image information."
                 )
             elif image_path is not None:
-                image_paths = [self.data_root.joinpath(line.strip()) for line in image_path.readlines() if len(line.strip()) > 0]
+                with open(image_path, "r") as file:
+                    image_paths = [self.data_root.joinpath(line.strip()) for line in file.readlines() if len(line.strip()) > 0]
 
             if tracking_image_path is not None and (not tracking_image_path.exists() or not tracking_image_path.is_file()):
                 raise ValueError(
                     "Expected `--tracking_image` to be path to a directory in `--data_root` containing tracking image information."
                 )
             elif tracking_image_path is not None:
-                tracking_image_paths = [self.data_root.joinpath(line.strip()) for line in tracking_image_path.readlines() if len(line.strip()) > 0]
+                with open(tracking_image_path, "r") as file:
+                    tracking_image_paths = [self.data_root.joinpath(line.strip()) for line in file.readlines() if len(line.strip()) > 0]
             
             if depth_image_path is not None and (not depth_image_path.exists() or not depth_image_path.is_file()):
                 raise ValueError(
                     "Expected `--depth_image` to be path to a directory in `--data_root` containing depth image information."
                 )
             elif depth_image_path is not None:
-                depth_image_paths = [self.data_root.joinpath(line.strip()) for line in depth_image_path.readlines() if len(line.strip()) > 0]
+                with open(depth_image_path, "r") as file:
+                    depth_image_paths = [self.data_root.joinpath(line.strip()) for line in file.readlines() if len(line.strip()) > 0]
             
             if normal_image_path is not None and (not normal_image_path.exists() or not normal_image_path.is_file()):
                 raise ValueError(
                     "Expected `--normal_image` to be path to a directory in `--data_root` containing normal image information."
                 )
             elif normal_image_path is not None:
-                normal_image_paths = [self.data_root.joinpath(line.strip()) for line in normal_image_path.readlines() if len(line.strip()) > 0]
+                with open(normal_image_path, "r") as file:
+                    normal_image_paths = [self.data_root.joinpath(line.strip()) for line in file.readlines() if len(line.strip()) > 0]
             
             if seg_mask_image_path is not None and (not seg_mask_image_path.exists() or not seg_mask_image_path.is_file()):
                 raise ValueError(
                     "Expected `--seg_mask_image` to be path to a directory in `--data_root` containing seg mask image information."
                 )
             elif seg_mask_image_path is not None:
-                seg_mask_image_paths = [self.data_root.joinpath(line.strip()) for line in seg_mask_image_path.readlines() if len(line.strip()) > 0]
+                with open(seg_mask_image_path, "r") as file:
+                    seg_mask_image_paths = [self.data_root.joinpath(line.strip()) for line in file.readlines() if len(line.strip()) > 0]
                 
             if hand_keypoints_image_path is not None and (not hand_keypoints_image_path.exists() or not hand_keypoints_image_path.is_file()):
                 raise ValueError(
                     "Expected `--hand_keypoints_image` to be path to a directory in `--data_root` containing hand keypoints image information."
                 )
             elif hand_keypoints_image_path is not None:
-                hand_keypoints_image_paths = [self.data_root.joinpath(line.strip()) for line in hand_keypoints_image_path.readlines() if len(line.strip()) > 0]
+                with open(hand_keypoints_image_path, "r") as file:
+                    hand_keypoints_image_paths = [self.data_root.joinpath(line.strip()) for line in file.readlines() if len(line.strip()) > 0]
             
         self.tracking_paths = tracking_paths
         self.normal_paths = normal_paths
