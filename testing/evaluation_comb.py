@@ -251,7 +251,8 @@ def sample_from_dataset(
         label_column=label_column,
         video_column=video_column,
         initial_frames_num=1,
-        load_tensors=False
+        load_tensors=False,
+        image_to_video=True
     )
     
     # Set random seed
@@ -283,7 +284,6 @@ def sample_from_dataset(
         hand_keypoints_image = sample["hand_keypoints_image"]  # Already processed tensor
         
         prompt = sample["prompt"]
-        
         
         samples.append({
             "prompt": prompt,
@@ -324,7 +324,6 @@ def generate_video(
     depth_column: str = None,
     label_column: str = None,
     video_column: str = None,
-    image_paths: str = None,
     num_samples: int = -1,
     evaluation_dir: str = "evaluations",
     fps: int = 8,
@@ -334,12 +333,12 @@ def generate_video(
 
     # If dataset parameters are provided, sample from dataset
     samples = None
+
     if all([data_root, caption_column, tracking_column, video_column, normal_column, depth_column, label_column]):
         samples = sample_from_dataset(
             data_root=data_root,
             caption_column=caption_column,
             tracking_column=tracking_column,
-            image_paths=image_paths,
             video_column=video_column,
             normal_column=normal_column,
             depth_column=depth_column,
@@ -351,7 +350,7 @@ def generate_video(
     # Load model and data
     if generate_type == "i2v":
         if transformer_path:
-            transformer = CogVideoXTransformer3DModelCombination.from_pretrained(transformer_path, torch_dtype=dtype)
+            transformer = CogVideoXTransformer3DModelCombination.from_pretrained(transformer_path, torch_dtype=dtype, num_tracking_blocks=args.num_tracking_blocks)
         pipe = CogVideoXImageToVideoPipelineCombination.from_pretrained(model_path, 
                                                                     transformer=transformer,
                                                                     torch_dtype=dtype)
@@ -379,7 +378,6 @@ def generate_video(
         from tqdm import tqdm
         for i, sample in tqdm(enumerate(samples), desc="Samples Num:"):
             print(f"Prompt: {sample['prompt'][:30]}")
-            tracking_frame = sample["tracking_frame"].to(device=device, dtype=dtype)
             video_frame = sample["video_frame"].to(device=device, dtype=dtype)
             video = sample["video"].to(device=device, dtype=dtype)
             
@@ -457,7 +455,7 @@ def generate_video(
             
             if tracking_column and generate_type == "i2v":
                 pipeline_args["tracking_maps"] = tracking_maps
-                pipeline_args["tracking_image"] = (tracking_frame.unsqueeze(0) + 1.0) / 2.0
+                pipeline_args["tracking_image"] = (tracking_images.unsqueeze(0) + 1.0) / 2.0
 
                 pipeline_args["normal_maps"] = normal_maps
                 pipeline_args["normal_image"] = (normal_images.unsqueeze(0) + 1.0) / 2.0
@@ -465,8 +463,8 @@ def generate_video(
                 pipeline_args["depth_maps"] = depth_maps
                 pipeline_args["depth_image"] = (depth_images.unsqueeze(0) + 1.0) / 2.0
                 
-                pipeline_args["seg_mask"] = seg_masks
-                pipeline_args["seg_mask_image"] = (seg_mask_images.unsqueeze(0) + 1.0) / 2.0
+                pipeline_args["seg_masks"] = seg_masks
+                pipeline_args["seg_image"] = (seg_mask_images.unsqueeze(0) + 1.0) / 2.0
                 
                 pipeline_args["hand_keypoints"] = hand_keypoints
                 pipeline_args["hand_keypoints_image"] = (hand_keypoints_images.unsqueeze(0) + 1.0) / 2.0
@@ -744,6 +742,9 @@ if __name__ == "__main__":
     # Add fps parameter
     parser.add_argument("--fps", type=int, default=8, 
                        help="Frames per second for the output video")
+    
+    parser.add_argument("--num_tracking_blocks", type=int, default=12,
+                        help="Number of controlnet blocks for the model")
 
     args = parser.parse_args()
     dtype = torch.float16 if args.dtype == "float16" else torch.bfloat16
@@ -753,7 +754,6 @@ if __name__ == "__main__":
         prompt=args.prompt,  # Can be None
         model_path=args.model_path,
         tracking_path=args.tracking_path,
-        image_paths=args.image_paths,
         output_path=args.output_path,
         image_or_video_path=args.image_or_video_path,
         num_inference_steps=args.num_inference_steps,
@@ -766,6 +766,9 @@ if __name__ == "__main__":
         caption_column=args.caption_column,
         tracking_column=args.tracking_column,
         video_column=args.video_column,
+        normal_column=args.normal_column,
+        depth_column=args.depth_column,
+        label_column=args.label_column,
         num_samples=args.num_samples,
         evaluation_dir=args.evaluation_dir,
         fps=args.fps,

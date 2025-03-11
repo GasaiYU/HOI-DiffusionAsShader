@@ -828,7 +828,7 @@ class HOIVideoDatasetResizing(VideoDataset):
         else:
             colored_masks = torch.zeros_like(frames)
             hand_keypoints = torch.zeros_like(frames)
-        
+
         image = frames[:self.initial_frames_num].clone() if self.image_to_video else None
         tracking_image = tracking_frames[:self.initial_frames_num].clone() if self.image_to_video else None
         normal_image = normal_frames[:self.initial_frames_num].clone() if self.image_to_video else None
