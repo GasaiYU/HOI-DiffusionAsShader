@@ -10,7 +10,6 @@ def alpha_blend(video_file_1, video_file_2):
     # Open video files
     cap1 = cv2.VideoCapture(video_file_1)
     cap2 = cv2.VideoCapture(video_file_2)
-
     # Get video properties
     fps = cap1.get(cv2.CAP_PROP_FPS)
     frame_width = int(cap1.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -48,14 +47,14 @@ def alpha_blend(video_file_1, video_file_2):
 
     return np.stack(out_frames, axis=0)
 
-def main(data_root='../data/dexycb_latents', out_dir='../data/preprocess/blended_data'):
+def main(data_root='../data/dexycb_latents_new/tmp', out_dir='../data/preprocess/blended_data'):
     os.makedirs(out_dir, exist_ok=True)
     condition_keys = ['depth', 'hand_keypoints', 'seg_mask', 'tracking']
-    for path in tqdm(os.listdir(os.path.join(data_root, 'videos'))):
+    for path in tqdm(os.listdir(os.path.join(data_root, 'videos', '0'))):
         merged_video = []     
-        video_path = os.path.join(data_root, 'videos', path)
+        video_path = os.path.join(data_root, 'videos', '0', path)
         for condition_key in condition_keys:
-            condition_path = os.path.join(data_root, condition_key, path)
+            condition_path = os.path.join(data_root, condition_key, '0', path)
             alpha_blend_video = alpha_blend(video_path, condition_path)
             merged_video.append(alpha_blend_video)
         

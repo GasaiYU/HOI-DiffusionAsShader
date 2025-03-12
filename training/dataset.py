@@ -760,7 +760,7 @@ class HOIVideoDatasetResizing(VideoDataset):
             tracking_frames = torch.zeros_like(frames)
         
         # Read normal videos
-        if normal_path is not None and (random.random() < 0.7 or not self.random_mask) and False:
+        if normal_path is not None and (random.random() < 0.7 or not self.random_mask):
             normal_reader = decord.VideoReader(uri=normal_path.as_posix())
             normal_frames = normal_reader.get_batch(frame_indices[:nearest_frame_bucket])
             normal_frames = normal_frames[:nearest_frame_bucket].float()
@@ -797,7 +797,7 @@ class HOIVideoDatasetResizing(VideoDataset):
                 label = np.load(label_path.joinpath(file))
                 masks.append(label["seg"])
                 colored_masks.append(convert_gray_to_color(label["seg"]))  
-                hand_keypoints.append(showHandJoints(np.zeros(list(nearest_res) + [3], dtype=np.uint8), label["joint_2d"][0], label["joint_3d"][0]))
+                hand_keypoints.append(showHandJoints(np.zeros([480, 640, 3], dtype=np.uint8), label["joint_2d"][0], label["joint_3d"][0]))
             
             # Get colored semantic masks
             colored_masks = torch.from_numpy(np.stack(colored_masks, axis=0)).float()
