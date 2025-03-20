@@ -247,6 +247,8 @@ def log_validation(
         normal_frames = normal_frames.permute(0, 3, 1, 2).contiguous()
         normal_frames_resized = torch.stack([resize(normal_frame, nearest_res) for normal_frame in normal_frames], dim=0)
         normal_frames = torch.stack([video_transforms(normal_frame) for normal_frame in normal_frames_resized], dim=0)
+        # # Mask normal frames
+        # normal_frames = torch.zeros_like(normal_frames)
 
         depth_map_path = Path(depth_map_path)
         depth_reader = decord.VideoReader(uri=depth_map_path.as_posix())
@@ -299,6 +301,8 @@ def log_validation(
             normal_maps = normal_latent_dist.sample() * vae.config.scaling_factor
             normal_maps = normal_maps.permute(0, 2, 1, 3, 4)  # to [B, F, C, H, W]
             normal_maps = normal_maps.to(memory_format=torch.contiguous_format, dtype=accelerator.unwrap_model(vae).dtype)
+            # Mask normal maps
+            normal_maps = torch.zeros_like(normal_maps)
 
             depth_frames = depth_frames.unsqueeze(0).to(device=accelerator.device, dtype=accelerator.unwrap_model(vae).dtype)
             depth_frames = depth_frames.permute(0, 2, 1, 3, 4)  # to [B, C, F, H, W]
@@ -728,12 +732,12 @@ def main(args):
                     raise ValueError(f"Unexpected save model: {unwrap_model(model).__class__}")
         else:
             with init_empty_weights():
-                transformer_ = CogVideoXTransformer3DModelTracking.from_config(
+                transformer_ = CogVideoXTransformer3DModelCombination.from_config(
                     args.pretrained_model_name_or_path, subfolder="transformer", num_tracking_blocks=args.num_tracking_blocks
                 )
                 init_under_meta = True
 
-        load_model = CogVideoXTransformer3DModelTracking.from_pretrained(os.path.join(input_dir, "transformer"))
+        load_model = CogVideoXTransformer3DModelCombination.from_pretrained(os.path.join(input_dir, "transformer"))
         transformer_.register_to_config(**load_model.config)
         transformer_.load_state_dict(load_model.state_dict(), assign=init_under_meta)
         del load_model
@@ -1128,7 +1132,7 @@ def main(args):
                 if args.hand_keypoints_column is not None or args.label_column is not None:
                     hand_keypoints = batch["hand_keypoints"].to(accelerator.device, non_blocking=True)
                     hand_keypoints_images = batch["hand_keypoints_images"].to(accelerator.device, non_blocking=True)
-
+                print(batch.keys())
                 # Encode videos
                 if not args.load_tensors:
                     videos = videos.permute(0, 2, 1, 3, 4)  # [B, C, F, H, W]

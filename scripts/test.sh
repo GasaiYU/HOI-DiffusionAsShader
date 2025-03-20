@@ -57,7 +57,7 @@ for learning_rate in "${LEARNING_RATES[@]}"; do
   for lr_schedule in "${LR_SCHEDULES[@]}"; do
     for optimizer in "${OPTIMIZERS[@]}"; do
       for steps in "${MAX_TRAIN_STEPS[@]}"; do
-        output_dir="./exps/cogshader_HOI_comb_latents_fixed_${steps}__optimizer_${optimizer}__lr-schedule_${lr_schedule}__learning-rate_${learning_rate}/"
+        output_dir="./exps/yks/cogshader_HOI_comb_latents_fixed_${steps}__optimizer_${optimizer}__lr-schedule_${lr_schedule}__learning-rate_${learning_rate}/"
 
         cmd="accelerate launch --config_file $ACCELERATE_CONFIG_FILE --gpu_ids $GPU_IDS --main_process_port $PORT training/cogvideox_image_to_video_comb_sft.py \
           --pretrained_model_name_or_path $MODEL_PATH \

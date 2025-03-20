@@ -780,6 +780,8 @@ class CogVideoXImageToVideoPipelineCombination(CogVideoXImageToVideoPipeline, Di
             generator,
             latents=None,
         )
+        # Mask normal image latents
+        normal_image_latents = torch.zeros_like(normal_image_latents)
         del normal_image
 
         _, depth_image_latents = self.prepare_latents(

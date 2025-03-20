@@ -239,7 +239,8 @@ def sample_from_dataset(
     label_column: str,
     video_column: str,
     num_samples: int = -1,
-    random_seed: int = 42
+    random_seed: int = 42,
+    ordinal: bool = True
 ):
     """Sample from dataset"""
     dataset = HOIVideoDatasetResizing(
@@ -251,8 +252,13 @@ def sample_from_dataset(
         label_column=label_column,
         video_column=video_column,
         initial_frames_num=1,
+        max_num_frames=49,
         load_tensors=False,
-        image_to_video=True
+        random_flip=None,
+        frame_buckets=[49],
+        image_to_video=True,
+        height_buckets=[480],
+        width_buckets=[720]
     )
     
     # Set random seed
@@ -260,11 +266,14 @@ def sample_from_dataset(
     
     # Randomly sample from dataset
     total_samples = len(dataset)
-    if num_samples == -1:
-        # If num_samples is -1, process all samples
-        selected_indices = range(total_samples)
+    if ordinal and num_samples < total_samples:
+        selected_indices = range(0, num_samples)
     else:
-        selected_indices = random.sample(range(total_samples), min(num_samples, total_samples))
+        if num_samples == -1:
+            # If num_samples is -1, process all samples
+            selected_indices = range(total_samples)
+        else:
+            selected_indices = random.sample(range(total_samples), min(num_samples, total_samples))
     
     samples = []
     for idx in selected_indices:
@@ -327,7 +336,8 @@ def generate_video(
     num_samples: int = -1,
     evaluation_dir: str = "evaluations",
     fps: int = 8,
-    transformer_path: str = None
+    transformer_path: str = None,
+    ordinal: bool = True
 ):
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -344,7 +354,8 @@ def generate_video(
             depth_column=depth_column,
             label_column=label_column,
             num_samples=num_samples,
-            random_seed=seed
+            random_seed=seed,
+            ordinal=ordinal
         )
 
     # Load model and data
@@ -452,22 +463,22 @@ def generate_video(
             }
 
             pipeline_args["image"] = (video_frame + 1.0) / 2.0
-            
+
             if tracking_column and generate_type == "i2v":
                 pipeline_args["tracking_maps"] = tracking_maps
-                pipeline_args["tracking_image"] = (tracking_images.unsqueeze(0) + 1.0) / 2.0
+                pipeline_args["tracking_image"] = (tracking_images + 1.0) / 2.0
 
                 pipeline_args["normal_maps"] = normal_maps
-                pipeline_args["normal_image"] = (normal_images.unsqueeze(0) + 1.0) / 2.0
+                pipeline_args["normal_image"] = (normal_images + 1.0) / 2.0
                 
                 pipeline_args["depth_maps"] = depth_maps
-                pipeline_args["depth_image"] = (depth_images.unsqueeze(0) + 1.0) / 2.0
+                pipeline_args["depth_image"] = (depth_images + 1.0) / 2.0
                 
                 pipeline_args["seg_masks"] = seg_masks
-                pipeline_args["seg_image"] = (seg_mask_images.unsqueeze(0) + 1.0) / 2.0
+                pipeline_args["seg_image"] = (seg_mask_images + 1.0) / 2.0
                 
                 pipeline_args["hand_keypoints"] = hand_keypoints
-                pipeline_args["hand_keypoints_image"] = (hand_keypoints_images.unsqueeze(0) + 1.0) / 2.0
+                pipeline_args["hand_keypoints_image"] = (hand_keypoints_images + 1.0) / 2.0
                 
             with torch.no_grad():
                 video_generate = pipe(**pipeline_args).frames[0]
@@ -476,7 +487,7 @@ def generate_video(
             output_name = f"{i:04d}.mp4"
             output_file = os.path.join(output_dir, output_name)
             os.makedirs(output_dir, exist_ok=True)
-            export_concat_video(video_generate, video, seg_mask_video, output_file, fps=fps)
+            export_comb_video(video_generate, video, [seg_mask_video, hand_keypoints_video, depth_video, tracking_video], output_file, fps=fps)
             
     else:
         pipeline_args = {
@@ -519,7 +530,7 @@ def generate_video(
         output_name = f"{os.path.splitext(os.path.basename(image_or_video_path))[0]}.mp4"
         output_file = os.path.join(output_dir, output_name)
         os.makedirs(output_dir, exist_ok=True)
-        export_concat_video(video_generate, video, tracking_video, output_file, fps=fps)
+        export_comb_video(video_generate, video, tracking_video, output_file, fps=fps)
 
 def create_frame_grid(frames: List[np.ndarray], interval: int = 9, max_cols: int = 7) -> np.ndarray:
     """
@@ -554,6 +565,103 @@ def create_frame_grid(frames: List[np.ndarray], interval: int = 9, max_cols: int
         grid[i*frame_height:(i+1)*frame_height, j*frame_width:(j+1)*frame_width] = frame
     
     return grid
+
+def export_comb_video(
+        generate_frames: List[PIL.Image.Image],
+        gt_video: torch.Tensor, 
+        condition_video_list: List[torch.Tensor], 
+        output_video_path: str,
+        fps: int = 8
+    ):
+    import imageio
+    import os
+
+    # Create subdirectories
+    base_dir = os.path.dirname(output_video_path)
+    filename = os.path.basename(output_video_path)
+    generated_dir = os.path.join(base_dir, "generated")
+    group_dir = os.path.join(base_dir, "group")
+    gt_dir = os.path.join(base_dir, "gt")
+
+    os.makedirs(generated_dir, exist_ok=True)
+    os.makedirs(group_dir, exist_ok=True)
+    os.makedirs(gt_dir, exist_ok=True)
+
+    # Convert original video tensor to numpy array and adjust format
+    gt_frames = []
+    for frame in gt_video:
+        frame = frame.permute(1,2,0).to(dtype=torch.float32,device="cpu").numpy()
+        frame = ((frame + 1.0) * 127.5).astype(np.uint8)
+        gt_frames.append(frame)
+    
+    condition_frames_list = []
+    for condition_video in condition_video_list:
+        condition_frames = []
+        for frame in condition_video:
+            frame = frame.permute(1,2,0).to(dtype=torch.float32,device="cpu").numpy()
+            frame = ((frame + 1.0) * 127.5).astype(np.uint8)
+            condition_frames.append(frame)
+        condition_frames_list.append(condition_frames)
+    
+    # Ensure all videos have same number of frames
+    num_frames = min(len(generate_frames), len(gt_frames))
+    for condition_frames in condition_frames_list:
+        num_frames = min(num_frames, len(condition_frames))
+    
+    generate_frames = generate_frames[:num_frames]
+    gt_frames = gt_frames[:num_frames]
+    for i in range(len(condition_frames_list)):
+        condition_frames_list[i] = condition_frames_list[i][:num_frames]
+    
+    # Convert generated PIL images to numpy arrays
+    generate_frames_np = [np.array(frame) for frame in generate_frames]
+
+    # Save generated video separately to generated folder
+    gen_video_path = os.path.join(generated_dir, f"generated_{filename}")
+    with imageio.get_writer(gen_video_path, fps=fps) as writer:
+        for frame in generate_frames_np:
+            writer.append_data(frame)
+    
+    # Concatenate frames vertically and save sampled frames
+    concat_frames = []
+    for i in range(num_frames):
+        gen_frame = generate_frames_np[i]
+        gt_frame = gt_frames[i]
+        
+        width = min(gen_frame.shape[1], gt_frame.shape[1])
+        height = gt_frame.shape[0]
+        
+        gen_frame = Image.fromarray(gen_frame).resize((width, height))
+        gen_frame = np.array(gen_frame)
+        gt_frame = Image.fromarray(gt_frame).resize((width, height))
+        gt_frame = np.array(gt_frame)
+        
+        condition_frame_list = []
+        for condition_frames in condition_frames_list:
+            condition_frame = condition_frames[i]
+            # alpha blend condition frame and gt_frame
+            condition_frame = cv2.addWeighted(gen_frame, 0.5, condition_frame, 0.5, 0)
+            condition_frame = Image.fromarray(condition_frame).resize((width, height))
+            condition_frame = np.array(condition_frame)
+            condition_frame_list.append(condition_frame)
+        
+        concat_frame = np.concatenate([gen_frame, gt_frame] + condition_frame_list, axis=1)
+        concat_frames.append(concat_frame)
+    
+    # Save concatenated frames to group folder
+    group_video_path = os.path.join(group_dir, f"group_{filename}")
+    with imageio.get_writer(group_video_path, fps=fps) as writer:
+        for frame in concat_frames:
+            writer.append_data(frame)
+
+    # Convert gt_frames to PIL images and save to gt folder
+    gt_video_path = os.path.join(gt_dir, f"gt_{filename}")
+    with imageio.get_writer(gt_video_path, fps=fps) as writer:
+        for frame in gt_frames:
+            writer.append_data(frame)
+
+    return group_video_path
+
 
 def export_concat_video(
     generated_frames: List[PIL.Image.Image], 
@@ -734,6 +842,8 @@ if __name__ == "__main__":
     # Add num_samples parameter
     parser.add_argument("--num_samples", type=int, default=-1, 
                        help="Number of samples to process. -1 means process all samples")
+    parser.add_argument("--ordinal", action="store_true",
+                       help="If provided, samples will be selected in order from the dataset. If not provided, samples will be selected randomly.")    
     
     # Add evaluation_dir parameter
     parser.add_argument("--evaluation_dir", type=str, default="evaluations", 
@@ -772,5 +882,6 @@ if __name__ == "__main__":
         num_samples=args.num_samples,
         evaluation_dir=args.evaluation_dir,
         fps=args.fps,
-        transformer_path=args.transformer_path
+        transformer_path=args.transformer_path,
+        ordinal=args.ordinal
     )

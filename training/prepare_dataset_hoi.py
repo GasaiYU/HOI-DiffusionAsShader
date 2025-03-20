@@ -912,26 +912,35 @@ def main():
         print(
             f"Completed preprocessing latents and embeddings. Temporary files from all ranks saved to `{tmp_dir.as_posix()}`"
         )
-
+        exit()
         # Move files from each rank to common directory
         for subfolder, extension in [
             ("images", "png"),
             ("image_latents", "pt"),
-            ("videos", "mp4"),
+            ("videos", "txt"),
             ("video_latents", "pt"),
             ("prompts", "txt"),
             ("prompt_embeds", "pt"),
-            ("videos", "txt"),
             ("tracking", "mp4"),
             ("tracking_latents", "pt"),
+            ("tracking_images", "png"),
+            ("tracking_images_latents", "pt"),
             ("depth", "mp4"),
             ("depth_latents", "pt"),
+            ("depth_images", "png"),
+            ("depth_images_latents", "pt"),
             ("normal", "mp4"),
             ("normal_latents", "pt"),
+            ("normal_images", "png"),
+            ("normal_images_latents", "pt"),
             ("seg_mask", "mp4"),
             ("seg_mask_latents", "pt"),
+            ("seg_mask_images", "png"),
+            ("seg_mask_images_latents", "pt"),
             ("hand_keypoints", "mp4"),
-            ("hand_keypoints_latents", "pt")
+            ("hand_keypoints_latents", "pt"),
+            ("hand_keypoints_images", "png"),
+            ("hand_keypoints_images_latents", "pt"),
         ]:
             tmp_subfolder = tmp_dir.joinpath(subfolder)
             combined_subfolder = output_dir.joinpath(subfolder)

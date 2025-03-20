@@ -3,7 +3,7 @@ import shutil
 
 from tqdm import tqdm
 
-def split_path_func(path, split_list=["0", "1", "2", "3"]):
+def split_path_func(path, split_list=["0", "1", "2", "3", "4", "5", "6", "7"]):
     split_path = path.split("/")
     for i, split in enumerate(split_path):
         if split in split_list:
@@ -35,9 +35,9 @@ def count_files(dir_path: str):
     return count
                 
 if __name__ == "__main__":
-    root_dir = 'data/dexycb_latents'
-    # output_dir = 'data/dexycb_latents'
-    # merge_latent_files(root_dir, output_dir)
+    root_dir = 'data/dexycb_latents_partial_fixed/tmp'
+    output_dir = 'data/dexycb_latents_partial_fixed'
+    merge_latent_files(root_dir, output_dir)
     
     for dir_path in os.listdir(root_dir):
         dir_path = os.path.join(root_dir, dir_path)

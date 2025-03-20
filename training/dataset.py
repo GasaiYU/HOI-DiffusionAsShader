@@ -670,7 +670,7 @@ class HOIVideoDatasetResizing(VideoDataset):
             tracking_latents = torch.zeros_like(video_latents)
             tracking_image_latents = torch.zeros_like(image_latents)
         
-        if (normal_latent_path is not None and normal_image_latent_path is not None) and (random.random() < 0.7 or not self.random_mask): 
+        if (normal_latent_path is not None and normal_image_latent_path is not None) and (random.random() < 0.7 or not self.random_mask) and False: 
             normal_latents = torch.load(normal_latent_path, map_location="cpu", weights_only=True)
             normal_image_latents = torch.load(normal_image_latent_path, map_location="cpu", weights_only=True)
         else:
@@ -760,7 +760,7 @@ class HOIVideoDatasetResizing(VideoDataset):
             tracking_frames = torch.zeros_like(frames)
         
         # Read normal videos
-        if normal_path is not None and (random.random() < 0.7 or not self.random_mask):
+        if normal_path is not None and (random.random() < 0.7 or not self.random_mask) and False:
             normal_reader = decord.VideoReader(uri=normal_path.as_posix())
             normal_frames = normal_reader.get_batch(frame_indices[:nearest_frame_bucket])
             normal_frames = normal_frames[:nearest_frame_bucket].float()
@@ -1085,12 +1085,12 @@ class HOIVideoDatasetResizing(VideoDataset):
 if __name__ == "__main__":
     hoi_dataset = HOIVideoDatasetResizing(
         data_root=Path("."),
-        caption_column=Path("data/dexycb_filelist/training/training_prompts.txt"),
-        video_column=Path("data/dexycb_filelist/training/training_videos.txt"),
-        tracking_column=Path("data/dexycb_filelist/training/training_trackings.txt"),
-        normal_column=Path("data/dexycb_filelist/training/training_normals.txt"),
-        depth_column=Path("data/dexycb_filelist/training/training_depths.txt"),
-        label_column=Path("data/dexycb_filelist/training/training_labels.txt"),
+        caption_column=Path("data/dexycb_filelist/val_prompts.txt"),
+        video_column=Path("data/dexycb_filelist/val_videos.txt"),
+        tracking_column=Path("data/dexycb_filelist/val_trackings.txt"),
+        normal_column=Path("data/dexycb_filelist/val_normals.txt"),
+        depth_column=Path("data/dexycb_filelist/val_depths.txt"),
+        label_column=Path("data/dexycb_filelist/val_labels.txt"),
         image_to_video=True,
         load_tensors=False,
         max_num_frames=49,
@@ -1100,7 +1100,7 @@ if __name__ == "__main__":
     )
 
     random.seed(42)
-    a = hoi_dataset[0]
+    a = hoi_dataset[11]
 
     rgb_video = a['video']
     tracking_video = a['tracking_map']
